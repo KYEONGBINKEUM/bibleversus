@@ -1,0 +1,5 @@
+{
+  "name": "Bible Race: Department Competition",
+  "description": "A collaborative Bible reading app where four departments (Gideon, Daniel, Joseph, and Samuel) compete in a turtle race. Track progress with real-time updates, detailed history, and performance charts.",
+  "requestFramePermissions": []
+}
