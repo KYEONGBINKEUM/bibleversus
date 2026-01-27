@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ReadingRecord, DepartmentId, DepartmentPopulations, PopulationLog, UserProfile } from './types';
-import { DEPARTMENTS, DEFAULT_GOOGLE_SHEET_URL } from './constants';
+import { DEPARTMENTS, DEFAULT_GOOGLE_SHEET_URL, SYNC_API_BASE, SHARED_CLOUD_ID } from './constants';
 import RaceTrack from './components/RaceTrack';
 import InputSection from './components/InputSection';
 import HistoryTable from './components/HistoryTable';
@@ -223,12 +223,21 @@ const App: React.FC = () => {
     const payload = { records: newRecords, popHistory: newHistory, users: newUsers };
     
     try {
+      // 1. Google Sheets Save (Primary)
       await fetch(googleSheetUrl, {
         method: 'POST',
         mode: 'no-cors', 
         headers: { 'Content-Type': 'text/plain' }, 
         body: JSON.stringify(payload)
       });
+
+      // 2. JsonBlob Backup (Secondary, Silent)
+      // 혹시 모를 상황을 위해 JsonBlob에도 백업을 시도합니다. 실패해도 메인 로직에는 영향 없음.
+      fetch(`${SYNC_API_BASE}/${SHARED_CLOUD_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).catch(err => console.warn('Backup failed:', err));
       
       setRecords(newRecords);
       setPopHistory(newHistory);

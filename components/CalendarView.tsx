@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { ReadingRecord } from '../types';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, BookOpen } from 'lucide-react';
 
 interface CalendarViewProps {
   records: ReadingRecord[];
@@ -24,19 +24,32 @@ const CalendarView: React.FC<CalendarViewProps> = ({ records, userId }) => {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0 = Sunday
 
-  const monthlyData = useMemo(() => {
+  // Filter records for this user
+  const userRecords = useMemo(() => records.filter(r => r.userId === userId), [records, userId]);
+
+  // Calculate All Time Total
+  const totalAllTime = useMemo(() => 
+    userRecords.reduce((sum, r) => sum + r.chapters, 0), 
+    [userRecords]
+  );
+
+  // Calculate Monthly Data & Total
+  const { monthlyData, totalThisMonth } = useMemo(() => {
     const data: Record<number, number> = {};
-    records.forEach(r => {
-      if (r.userId !== userId) return;
+    let total = 0;
+    
+    userRecords.forEach(r => {
       const d = new Date(r.date);
       // Compare year and month using local time
       if (d.getFullYear() === year && d.getMonth() === month) {
         const day = d.getDate();
-        data[day] = (data[day] || 0) + r.chapters;
+        const chapters = r.chapters;
+        data[day] = (data[day] || 0) + chapters;
+        total += chapters;
       }
     });
-    return data;
-  }, [records, userId, year, month]);
+    return { monthlyData: data, totalThisMonth: total };
+  }, [userRecords, year, month]);
 
   const renderDays = () => {
     const days = [];
@@ -74,48 +87,69 @@ const CalendarView: React.FC<CalendarViewProps> = ({ records, userId }) => {
   };
 
   return (
-    <div className="space-y-4">
-        {/* Navigation */}
-        <div className="flex items-center justify-between">
-             <h3 className="text-sm font-bold text-slate-500 pl-1">
-                {year}년 {month + 1}월
-             </h3>
-             <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
-                <button onClick={handlePrevMonth} className="p-1 hover:bg-white rounded-md transition-all text-slate-500 hover:text-slate-700 shadow-sm hover:shadow">
-                    <ChevronLeft className="w-4 h-4" />
-                </button>
-                <button onClick={() => setCurrentDate(new Date())} className="px-2 py-1 text-[10px] font-bold text-slate-500 hover:bg-white rounded-md hover:text-indigo-600 transition-all">
-                    오늘
-                </button>
-                <button onClick={handleNextMonth} className="p-1 hover:bg-white rounded-md transition-all text-slate-500 hover:text-slate-700 shadow-sm hover:shadow">
-                    <ChevronRight className="w-4 h-4" />
-                </button>
-            </div>
-        </div>
-        
-        {/* Calendar Grid */}
-        <div className="select-none">
-            <div className="grid grid-cols-7 mb-2">
-                {['일', '월', '화', '수', '목', '금', '토'].map((d, i) => (
-                    <div key={d} className={`text-center text-xs font-bold py-2 ${i === 0 ? 'text-rose-500' : 'text-slate-400'}`}>
-                        {d}
-                    </div>
-                ))}
-            </div>
-            <div className="grid grid-cols-7 border-r border-b border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm ring-1 ring-slate-100">
-                {renderDays()}
-            </div>
-             <div className="mt-3 flex justify-end items-center gap-2 text-[10px] text-slate-400 font-medium">
-                 <div className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
-                    <span>읽은 장수</span>
+    <div className="space-y-6">
+        {/* Stats Summary */}
+        <div className="flex gap-3">
+             <div className="flex-1 bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100 flex items-center justify-between">
+                 <div>
+                     <p className="text-xs font-bold text-slate-500 mb-1">전체 누적</p>
+                     <p className="text-2xl font-black text-indigo-600 leading-none">{totalAllTime}<span className="text-sm text-indigo-400 ml-1 font-bold">장</span></p>
                  </div>
-                 <span className="text-slate-300">|</span>
-                 <div className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                    <span>일요일</span>
+                 <div className="bg-white p-2 rounded-xl text-indigo-200">
+                     <BookOpen className="w-5 h-5 text-indigo-500" />
                  </div>
              </div>
+             <div className="flex-1 bg-slate-50/50 p-4 rounded-2xl border border-slate-100 flex items-center justify-between">
+                 <div>
+                     <p className="text-xs font-bold text-slate-500 mb-1">{month + 1}월 합계</p>
+                     <p className="text-2xl font-black text-slate-700 leading-none">{totalThisMonth}<span className="text-sm text-slate-400 ml-1 font-bold">장</span></p>
+                 </div>
+             </div>
+        </div>
+
+        <div className="space-y-4">
+            {/* Navigation */}
+            <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-500 pl-1">
+                    {year}년 {month + 1}월
+                </h3>
+                <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+                    <button onClick={handlePrevMonth} className="p-1 hover:bg-white rounded-md transition-all text-slate-500 hover:text-slate-700 shadow-sm hover:shadow">
+                        <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => setCurrentDate(new Date())} className="px-2 py-1 text-[10px] font-bold text-slate-500 hover:bg-white rounded-md hover:text-indigo-600 transition-all">
+                        오늘
+                    </button>
+                    <button onClick={handleNextMonth} className="p-1 hover:bg-white rounded-md transition-all text-slate-500 hover:text-slate-700 shadow-sm hover:shadow">
+                        <ChevronRight className="w-4 h-4" />
+                    </button>
+                </div>
+            </div>
+            
+            {/* Calendar Grid */}
+            <div className="select-none">
+                <div className="grid grid-cols-7 mb-2">
+                    {['일', '월', '화', '수', '목', '금', '토'].map((d, i) => (
+                        <div key={d} className={`text-center text-xs font-bold py-2 ${i === 0 ? 'text-rose-500' : 'text-slate-400'}`}>
+                            {d}
+                        </div>
+                    ))}
+                </div>
+                <div className="grid grid-cols-7 border-r border-b border-slate-100 rounded-2xl overflow-hidden bg-white shadow-sm ring-1 ring-slate-100">
+                    {renderDays()}
+                </div>
+                <div className="mt-3 flex justify-end items-center gap-2 text-[10px] text-slate-400 font-medium">
+                    <div className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
+                        <span>읽은 장수</span>
+                    </div>
+                    <span className="text-slate-300">|</span>
+                    <div className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                        <span>일요일</span>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
   );
