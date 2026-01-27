@@ -5,11 +5,12 @@ import RaceTrack from './components/RaceTrack';
 import InputSection from './components/InputSection';
 import HistoryTable from './components/HistoryTable';
 import Statistics from './components/Statistics';
+import CalendarView from './components/CalendarView';
 import { InstallPrompt } from './components/InstallPrompt';
 import { 
   Trophy, BarChart3, BookOpen, Lock, Unlock, 
   Settings, Loader2, Share2, Check, LogIn, UserCircle, LogOut,
-  Save, ChevronRight, FileSpreadsheet, AlertTriangle, Edit2, UserPen
+  Save, ChevronRight, FileSpreadsheet, AlertTriangle, Edit2, UserPen, Calendar
 } from 'lucide-react';
 
 // Firebase Imports (Auth Only)
@@ -432,7 +433,7 @@ const App: React.FC = () => {
             </div>
             <div className="flex flex-col">
               <h1 className="text-lg font-[900] text-slate-800 leading-none tracking-tight">
-                Bible<span className="text-indigo-600">Race</span>
+                부서별<span className="text-indigo-600">성경읽기대항전</span>
               </h1>
             </div>
           </div>
@@ -526,6 +527,21 @@ const App: React.FC = () => {
             />
           </div>
         </section>
+
+        {/* New: Calendar Section (Logged in only) */}
+        {user && (
+           <section className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="p-6 border-b border-slate-50 flex items-center gap-3">
+                 <div className="bg-violet-50 p-2 rounded-xl">
+                   <Calendar className="w-5 h-5 text-violet-600" />
+                 </div>
+                 <h2 className="text-lg font-black text-slate-800">나의 독서 캘린더</h2>
+              </div>
+              <div className="p-6">
+                 <CalendarView records={records} userId={user.uid} />
+              </div>
+           </section>
+        )}
 
         {/* 3. Stats & History */}
         <div className="grid grid-cols-1 gap-6">
