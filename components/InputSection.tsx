@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { DepartmentId, Department } from '../types';
+import { DepartmentId, Department, ReadingRecord } from '../types';
 import { CheckCircle2, Calendar, Info, ShieldCheck, ChevronDown } from 'lucide-react';
 
 interface InputSectionProps {
@@ -9,6 +9,8 @@ interface InputSectionProps {
   onAdd: (chapters: number, date?: string, targetDeptId?: DepartmentId, isAdminRecord?: boolean) => void;
   isAdminMode: boolean;
   departments: Department[];
+  records: ReadingRecord[];
+  userId?: string;
 }
 
 const getKSTDateString = () => {
@@ -18,12 +20,13 @@ const getKSTDateString = () => {
   return kstObj.toISOString().split('T')[0];
 };
 
-const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onLogin, onAdd, isAdminMode, departments }) => {
+const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onLogin, onAdd, isAdminMode, departments, records, userId }) => {
   const [input, setInput] = useState('');
   const [date, setDate] = useState(getKSTDateString());
   const [isDateEditable, setIsDateEditable] = useState(false);
   const [selectedDeptId, setSelectedDeptId] = useState<DepartmentId | undefined>(userDeptId || (departments.length > 0 ? departments[0].id : ''));
 
+  // 현재 날짜 체크 타이머
   useEffect(() => {
     const timer = setInterval(() => {
       const todayKST = getKSTDateString();
@@ -33,6 +36,39 @@ const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onL
     }, 1000 * 60); // Check every minute
     return () => clearInterval(timer);
   }, [isDateEditable, date]);
+
+  // 관리자 모드일 때는 선택된 부서를, 아닐 때는 자신의 부서를 사용
+  const currentDeptId = isAdminMode ? (selectedDeptId || userDeptId) : userDeptId;
+  
+  // 날짜나 부서(관리자모드)가 변경되면 해당 날짜의 기존 기록을 찾아서 입력창에 표시
+  useEffect(() => {
+    // 부서나 날짜가 유효하지 않으면 패스
+    if (!date) return;
+    
+    // 타겟 유저 ID 설정 (관리자면 'admin', 아니면 로그인 유저)
+    const targetUserId = isAdminMode ? 'admin' : (userId || '');
+    
+    // 해당 조건에 맞는 기록 찾기
+    const foundRecord = records.find(r => {
+        const rDate = r.date.split('T')[0];
+        const isDateMatch = rDate === date;
+
+        if (isAdminMode) {
+            // 관리자 모드: 날짜 + 관리자 기록 여부 + 부서 일치 확인
+            return isDateMatch && r.isAdminRecord && r.departmentId === selectedDeptId;
+        } else {
+            // 일반 유저: 날짜 + 유저 ID 일치 확인
+            return isDateMatch && r.userId === targetUserId;
+        }
+    });
+
+    if (foundRecord) {
+        setInput(foundRecord.chapters.toString());
+    } else {
+        setInput('');
+    }
+  }, [date, selectedDeptId, isAdminMode, records, userId]);
+
 
   // 1. 비로그인 상태 UI (관리자 모드가 아닐 때만 노출)
   if (!isLoggedIn && !isAdminMode) {
@@ -56,8 +92,6 @@ const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onL
     );
   }
 
-  // 관리자 모드일 때는 선택된 부서를, 아닐 때는 자신의 부서를 사용
-  const currentDeptId = isAdminMode ? (selectedDeptId || userDeptId) : userDeptId;
   const myDept = departments.find(d => d.id === currentDeptId);
 
   // 2. 로그인 했으나 부서 정보가 없는 경우
@@ -73,7 +107,12 @@ const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onL
     
     // 관리자 모드에서는 targetDeptId와 isAdminRecord를 명시적으로 전달
     onAdd(amount, date, isAdminMode ? selectedDeptId : undefined, isAdminMode);
-    setInput('');
+    // 수정 모드이므로 입력값을 초기화하지 않고, 변경된 값이 그대로 보이도록 유지할 수도 있지만
+    // 사용성을 위해 보통 유지하거나 저장 알림을 줌. 여기선 날짜가 그대로라면 값이 유지되는게(useEffect 로직상) 자연스러움
+    // 하지만 onAdd 실행 후 records가 업데이트되어 useEffect가 다시 돌면서 값을 채울 것임.
+    // 일시적으로 비우는 것보다 UX상 놔두는게 나을 수도 있으나, 저장됨을 인지시키기 위해 깜빡임이나 알림이 있으면 좋음.
+    // 일단 기존 로직대로 유지하되, useEffect가 다시 값을 채워줄 것이므로 setInput('')을 제거해도 되지만
+    // 리액트 상태 업데이트 타이밍 고려하여 안전하게 둠 (records 변경 -> useEffect -> setInput)
   };
 
   // 3. 정상 입력 폼 UI
@@ -122,7 +161,7 @@ const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onL
                 {/* Input Fields */}
                 <div className="space-y-4">
                     <div className="space-y-1">
-                        <label className="text-[11px] font-bold text-slate-500 uppercase">읽은 장수</label>
+                        <label className="text-[11px] font-bold text-slate-500 uppercase">읽은 장수 (수정 가능)</label>
                         <div className="relative">
                             <input
                                 type="tel"

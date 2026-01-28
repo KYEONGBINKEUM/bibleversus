@@ -295,27 +295,60 @@ const App: React.FC = () => {
       setIsChangingDept(true);
   };
 
-  const addRecord = async (chapters: number, customDate?: string, targetDeptId?: DepartmentId, isAdminRecord: boolean = false) => {
+  // 기록 저장 (수정 및 추가)
+  const saveDailyRecord = async (chapters: number, customDateStr?: string, targetDeptId?: DepartmentId, isAdminRecord: boolean = false) => {
     if (!isAdminRecord && (!user || !userProfile?.departmentId)) return;
     if (isAdminRecord && !targetDeptId) return;
 
-    const recordDate = customDate ? new Date(customDate) : new Date();
-    const now = new Date();
-    if (customDate) recordDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+    const targetUserId = isAdminRecord ? 'admin' : (user?.uid || 'unknown');
+    // 날짜 비교를 위해 YYYY-MM-DD 포맷 추출
+    const targetDateStr = customDateStr || new Date().toISOString().split('T')[0];
     
-    const newRecord: ReadingRecord = {
-      id: crypto.randomUUID(),
-      departmentId: targetDeptId || userProfile!.departmentId!,
-      userId: user?.uid || 'admin',
-      userName: userProfile?.displayName || '관리자',
-      chapters,
-      date: recordDate.toISOString(),
-      isAdminRecord: isAdminRecord
-    };
+    let updatedRecords = [...records];
     
-    const nextRecords = [newRecord, ...records];
-    setRecords(nextRecords);
-    await saveData(nextRecords, popHistory);
+    // 해당 날짜/사용자의 기존 기록 찾기
+    const existingIndex = updatedRecords.findIndex(r => {
+        const recordDateStr = r.date.split('T')[0];
+        const isSameDate = recordDateStr === targetDateStr;
+        
+        if (isAdminRecord) {
+            // 관리자는 부서별, 날짜별 관리자 기록이 하나라고 가정하거나, 
+            // 현재 로직상 'admin' userId로 기록되므로 부서와 날짜로 식별
+            return isSameDate && r.isAdminRecord && r.departmentId === targetDeptId;
+        } else {
+            return isSameDate && r.userId === targetUserId;
+        }
+    });
+
+    if (existingIndex >= 0) {
+        // 기존 기록 수정 (덮어쓰기)
+        updatedRecords[existingIndex] = {
+            ...updatedRecords[existingIndex],
+            chapters: chapters,
+            // 부서가 변경되었을 수도 있으므로 최신 부서 ID 반영
+            departmentId: targetDeptId || updatedRecords[existingIndex].departmentId
+        };
+    } else {
+        // 새 기록 추가
+        const now = new Date();
+        const recordDate = new Date(targetDateStr);
+        // 정렬을 위해 현재 시간만 반영, 날짜는 선택한 날짜
+        recordDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+
+        const newRecord: ReadingRecord = {
+          id: crypto.randomUUID(),
+          departmentId: targetDeptId || userProfile!.departmentId!,
+          userId: targetUserId,
+          userName: isAdminRecord ? '관리자' : (userProfile?.displayName || '이름 없음'),
+          chapters,
+          date: recordDate.toISOString(),
+          isAdminRecord: isAdminRecord
+        };
+        updatedRecords = [newRecord, ...updatedRecords];
+    }
+    
+    setRecords(updatedRecords);
+    await saveData(updatedRecords, popHistory);
   };
 
   const deleteRecord = async (id: string) => {
@@ -535,7 +568,7 @@ const App: React.FC = () => {
             </div>
             <div className="flex flex-col">
               <h1 className="text-lg font-[900] text-slate-800 leading-none tracking-tight">
-                부서별<span className="text-indigo-600">성경읽기대항전</span>
+                부서 <span className="text-indigo-600">성경읽기대항전</span>
               </h1>
             </div>
           </div>
@@ -621,9 +654,11 @@ const App: React.FC = () => {
               isLoggedIn={!!user}
               userDeptId={userProfile?.departmentId} 
               onLogin={handleGoogleLogin}
-              onAdd={addRecord}
+              onAdd={saveDailyRecord}
               isAdminMode={isAdminMode} 
               departments={departments}
+              records={records}
+              userId={user?.uid}
             />
           </div>
         </section>
@@ -635,7 +670,7 @@ const App: React.FC = () => {
                  <div className="bg-violet-50 p-2 rounded-xl">
                    <Calendar className="w-5 h-5 text-violet-600" />
                  </div>
-                 <h2 className="text-lg font-black text-slate-800">나의 독서 캘린더</h2>
+                 <h2 className="text-lg font-black text-slate-800">나의 성경읽기 캘린더</h2>
               </div>
               <div className="p-6">
                  <CalendarView records={records} userId={user.uid} />
