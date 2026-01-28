@@ -1,17 +1,17 @@
 import React, { useState } from 'react';
-import { ReadingRecord } from '../types';
-import { DEPARTMENTS } from '../constants';
+import { ReadingRecord, Department } from '../types';
 import { Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface HistoryTableProps {
   records: ReadingRecord[];
   onDelete: (id: string) => void;
   isAdmin: boolean;
+  departments: Department[];
 }
 
 const ITEMS_PER_PAGE = 20;
 
-const HistoryTable: React.FC<HistoryTableProps> = ({ records, onDelete, isAdmin }) => {
+const HistoryTable: React.FC<HistoryTableProps> = ({ records, onDelete, isAdmin, departments }) => {
   const [currentPage, setCurrentPage] = useState(1);
 
   if (records.length === 0) {
@@ -50,7 +50,7 @@ const HistoryTable: React.FC<HistoryTableProps> = ({ records, onDelete, isAdmin 
           </thead>
           <tbody className="divide-y divide-slate-50">
             {currentRecords.map((record) => {
-              const dept = DEPARTMENTS.find(d => d.id === record.departmentId);
+              const dept = departments.find(d => d.id === record.departmentId);
               const date = new Date(record.date);
               const dateString = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
               
@@ -67,7 +67,7 @@ const HistoryTable: React.FC<HistoryTableProps> = ({ records, onDelete, isAdmin 
                   <td className="py-3 px-2">
                     <div className="flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: dept?.color }} />
-                      <span className="font-bold text-xs text-slate-600">{dept?.name}</span>
+                      <span className="font-bold text-xs text-slate-600">{dept?.name || '삭제된 부서'}</span>
                     </div>
                   </td>
                   <td className="py-3 px-2 text-right pr-4">

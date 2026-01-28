@@ -1,4 +1,5 @@
-export type DepartmentId = 'GIDEON' | 'DANIEL' | 'JOSEPH';
+
+export type DepartmentId = string;
 
 export interface Department {
   id: DepartmentId;
@@ -32,9 +33,7 @@ export interface PopulationLog {
 
 export interface ChartData {
   label: string;
-  GIDEON: number;
-  DANIEL: number;
-  JOSEPH: number;
+  [key: string]: number | string; // Dynamic department keys
 }
 
 export type DepartmentPopulations = Record<DepartmentId, number>;

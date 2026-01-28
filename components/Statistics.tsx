@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ReadingRecord, ChartData, PopulationLog, DepartmentId } from '../types';
-import { DEPARTMENTS } from '../constants';
+import { ReadingRecord, ChartData, PopulationLog, DepartmentId, Department } from '../types';
 import { BarChart3, TrendingUp, Users, Crown } from 'lucide-react';
 import { 
   BarChart, 
@@ -19,13 +18,14 @@ interface StatisticsProps {
   records: ReadingRecord[];
   popHistory: PopulationLog[];
   isAdmin: boolean;
+  departments: Department[];
 }
 
 type Period = 'daily' | 'weekly' | 'monthly';
 type ChartType = 'bar' | 'line';
 type ViewMode = 'total' | 'average';
 
-const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin }) => {
+const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin, departments }) => {
   const [period, setPeriod] = useState<Period>('daily');
   const [chartType, setChartType] = useState<ChartType>('bar');
   const [viewMode, setViewMode] = useState<ViewMode>('average');
@@ -55,7 +55,7 @@ const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin })
     const processedScores: { departmentId: DepartmentId, date: string, scoreChapters: number, timestamp: number }[] = [];
     
     // 부서별로 그룹화
-    DEPARTMENTS.forEach(dept => {
+    departments.forEach(dept => {
         const deptRecords = records.filter(r => r.departmentId === dept.id);
         const normalGroup: Record<string, { date: string, chapters: number, timestamp: number }> = {};
         
@@ -102,14 +102,22 @@ const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin })
       }
 
       if (!data[key]) {
-        data[key] = { label: key, GIDEON: 0, DANIEL: 0, JOSEPH: 0, timestamp: representativeTimestamp };
+        // Initialize all departments with 0
+        const initialData: any = { label: key, timestamp: representativeTimestamp };
+        departments.forEach(d => initialData[d.id] = 0);
+        data[key] = initialData;
+      }
+
+      // Ensure key exists (in case departments changed dynamically)
+      if (typeof data[key][record.departmentId] !== 'number') {
+        data[key][record.departmentId] = 0;
       }
 
       if (viewMode === 'total') {
-        data[key][record.departmentId] += record.scoreChapters;
+        (data[key][record.departmentId] as number) += record.scoreChapters;
       } else {
         const pop = getPopulationAtDate(record.date, record.departmentId);
-        data[key][record.departmentId] += (record.scoreChapters / pop);
+        (data[key][record.departmentId] as number) += (record.scoreChapters / pop);
       }
     });
 
@@ -119,9 +127,9 @@ const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin })
     // 최신 데이터 조각 가져오기 (이미 오름차순 정렬되었으므로 끝에서 자름)
     const limit = period === 'daily' ? 7 : period === 'weekly' ? 4 : 6;
     return sorted.slice(-limit);
-  }, [records, period, viewMode, popHistory]);
+  }, [records, period, viewMode, popHistory, departments]);
 
-  // 개인별 랭킹 데이터 (관리자용) - 전체 인원 노출, 여기는 "장수 모두 허용" (Uncapped)
+  // 개인별 랭킹 데이터 (관리자용) - 전체 인원 노출
   const individualRankings = useMemo(() => {
     if (!isAdmin) return [];
     
@@ -132,7 +140,7 @@ const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin })
         userStats[r.userId] = { name: r.userName || '익명', deptId: r.departmentId, total: 0 };
       }
       userStats[r.userId].name = r.userName || '익명';
-      userStats[r.userId].total += r.chapters; // 여기는 raw chapters 그대로 합산
+      userStats[r.userId].total += r.chapters; 
     });
 
     return Object.values(userStats).sort((a, b) => b.total - a.total);
@@ -153,7 +161,7 @@ const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin })
             contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
           />
           <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px', fontWeight: 600 }} />
-          {DEPARTMENTS.map(dept => (
+          {departments.map(dept => (
             <Bar key={dept.id} dataKey={dept.id} name={dept.name} fill={dept.color} radius={[4, 4, 0, 0]} barSize={period === 'daily' ? 12 : 24} />
           ))}
         </BarChart>
@@ -169,7 +177,7 @@ const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin })
             contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
           />
           <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px', fontWeight: 600 }} />
-          {DEPARTMENTS.map(dept => (
+          {departments.map(dept => (
             <Line key={dept.id} type="monotone" dataKey={dept.id} name={dept.name} stroke={dept.color} strokeWidth={3} dot={{ r: 4, fill: dept.color, strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6, strokeWidth: 0 }} />
           ))}
         </LineChart>
@@ -249,7 +257,7 @@ const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin })
                </thead>
                <tbody className="divide-y divide-slate-200">
                  {individualRankings.map((user, index) => {
-                   const dept = DEPARTMENTS.find(d => d.id === user.deptId);
+                   const dept = departments.find(d => d.id === user.deptId);
                    return (
                      <tr key={index} className="hover:bg-white transition-colors">
                        <td className="py-3 pl-4 font-bold text-slate-400 w-12">{index + 1}</td>
@@ -257,7 +265,7 @@ const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin })
                        <td className="py-3 text-slate-500">
                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white border border-slate-200 text-[10px]">
                             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: dept?.color }}></span>
-                            {dept?.name}
+                            {dept?.name || '삭제됨'}
                          </span>
                        </td>
                        <td className="py-3 pr-4 text-right font-black text-indigo-600">{user.total}</td>

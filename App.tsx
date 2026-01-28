@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ReadingRecord, DepartmentId, DepartmentPopulations, PopulationLog, UserProfile } from './types';
-import { DEPARTMENTS, DEFAULT_GOOGLE_SHEET_URL, SYNC_API_BASE, SHARED_CLOUD_ID } from './constants';
+import { ReadingRecord, DepartmentId, DepartmentPopulations, PopulationLog, UserProfile, Department } from './types';
+import { INITIAL_DEPARTMENTS, DEFAULT_GOOGLE_SHEET_URL, SYNC_API_BASE, SHARED_CLOUD_ID } from './constants';
 import RaceTrack from './components/RaceTrack';
 import InputSection from './components/InputSection';
 import HistoryTable from './components/HistoryTable';
@@ -10,7 +10,8 @@ import { InstallPrompt } from './components/InstallPrompt';
 import { 
   Trophy, BarChart3, BookOpen, Lock, Unlock, 
   Settings, Loader2, Share2, Check, LogIn, UserCircle, LogOut,
-  Save, ChevronRight, FileSpreadsheet, AlertTriangle, Edit2, UserPen, Calendar
+  Save, ChevronRight, FileSpreadsheet, AlertTriangle, Edit2, UserPen, Calendar,
+  Database, Cloud, Download, Plus, Trash2, Palette
 } from 'lucide-react';
 
 // Firebase Imports (Auth Only)
@@ -20,7 +21,8 @@ import * as firebaseAuth from 'firebase/auth';
 interface AppData {
   records: ReadingRecord[];
   popHistory: PopulationLog[];
-  users?: UserProfile[]; // 유저 정보 추가
+  users?: UserProfile[];
+  departments?: Department[]; // Dynamic departments
 }
 
 const App: React.FC = () => {
@@ -30,33 +32,52 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
 
   // --- Data State ---
+  const [departments, setDepartments] = useState<Department[]>(INITIAL_DEPARTMENTS);
   const [records, setRecords] = useState<ReadingRecord[]>([]);
   const [popHistory, setPopHistory] = useState<PopulationLog[]>([
     { startDate: new Date(0).toISOString(), populations: { GIDEON: 10, DANIEL: 10, JOSEPH: 10 } }
   ]);
-  const [allUsers, setAllUsers] = useState<UserProfile[]>([]); // 전체 유저 정보 관리
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   
   // --- UI State ---
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
-  const [isChangingDept, setIsChangingDept] = useState(false); // 부서 변경 모드
+  const [isChangingDept, setIsChangingDept] = useState(false);
   
-  // 이름 입력 상태 (초기 설정 및 수정용)
+  // 이름 입력 상태
   const [inputName, setInputName] = useState('');
 
   // --- Admin State ---
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [adminInput, setAdminInput] = useState('');
-  const [tempPopulations, setTempPopulations] = useState<DepartmentPopulations>({ GIDEON: 10, DANIEL: 10, JOSEPH: 10 });
+  const [tempPopulations, setTempPopulations] = useState<DepartmentPopulations>({});
   const [popApplyDate, setPopApplyDate] = useState<string>(new Date().toISOString().split('T')[0]);
+
+  // Admin: New Department State
+  const [newDeptName, setNewDeptName] = useState('');
+  const [newDeptEmoji, setNewDeptEmoji] = useState('🐢');
+  const [newDeptColor, setNewDeptColor] = useState('#6366f1');
 
   const [googleSheetUrl, setGoogleSheetUrl] = useState(DEFAULT_GOOGLE_SHEET_URL);
   const isFetchingRef = useRef(false);
+  const lastSaveTimeRef = useRef<number>(0); // 저장 직후 동기화로 인한 롤백 방지용
+
+  // Initialize temp populations when departments change
+  useEffect(() => {
+    if (popHistory.length > 0) {
+      const lastPop = popHistory[popHistory.length - 1].populations;
+      const initialPop: DepartmentPopulations = {};
+      departments.forEach(d => {
+        initialPop[d.id] = lastPop[d.id] || 1;
+      });
+      setTempPopulations(initialPop);
+    }
+  }, [departments, popHistory]);
 
   // --------------------------------------------------------------------------
-  // 1. Auth Management (Firebase) & User Profile Sync
+  // 1. Auth Management
   // --------------------------------------------------------------------------
   useEffect(() => {
     if (!isConfigured || !auth) {
@@ -67,15 +88,12 @@ const App: React.FC = () => {
     const unsubscribe = firebaseAuth.onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        // DB(allUsers)에서 내 정보 찾기
         const foundUser = allUsers.find(u => u.uid === currentUser.uid);
         
         if (foundUser) {
            setUserProfile(foundUser);
-           // 이미 등록된 유저라면 저장된 이름을 inputName 초기값으로
            if (!inputName) setInputName(foundUser.displayName);
         } else {
-           // 등록되지 않은 유저라면 구글 이름을 초기값으로 (없으면 '이름 없음')
            const initialName = currentUser.displayName || '이름 없음';
            setUserProfile({
              uid: currentUser.uid,
@@ -92,7 +110,7 @@ const App: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, [allUsers]); // allUsers가 로드될 때도 체크해야 함
+  }, [allUsers]);
 
   const handleGoogleLogin = async () => {
     if (!auth || !googleProvider) {
@@ -116,43 +134,8 @@ const App: React.FC = () => {
     }
   };
 
-  // 부서 선택 및 이름 저장 로직
-  const handleSelectDepartment = async (deptId: DepartmentId) => {
-    if (!user) return;
-    if (!inputName.trim()) {
-        alert("이름을 입력해주세요.");
-        return;
-    }
-    
-    const newProfile: UserProfile = {
-      uid: user.uid,
-      displayName: inputName.trim(), // 사용자가 입력한 이름 사용
-      email: user.email,
-      departmentId: deptId
-    };
-
-    // 1. 로컬 상태 업데이트
-    setUserProfile(newProfile);
-    setIsChangingDept(false);
-
-    // 2. 전체 유저 목록 업데이트 (기존 유저 정보 대체 또는 추가)
-    const otherUsers = allUsers.filter(u => u.uid !== user.uid);
-    const nextAllUsers = [...otherUsers, newProfile];
-    setAllUsers(nextAllUsers);
-
-    // 3. 서버 저장
-    await saveData(records, popHistory, nextAllUsers);
-  };
-
-  const startEditing = () => {
-      if (userProfile) {
-          setInputName(userProfile.displayName);
-      }
-      setIsChangingDept(true);
-  };
-
   // --------------------------------------------------------------------------
-  // 2. Data Sync (Google Sheets Fetch)
+  // 2. Data Sync
   // --------------------------------------------------------------------------
   useEffect(() => {
     loadFromGoogleSheet(googleSheetUrl);
@@ -170,6 +153,8 @@ const App: React.FC = () => {
   }, [googleSheetUrl]);
 
   const triggerSync = (silent: boolean) => {
+    // 저장 직후 10초간은 자동 동기화 무시 (서버 반영 지연으로 인한 롤백 방지)
+    if (Date.now() - lastSaveTimeRef.current < 10000) return;
     if (isFetchingRef.current) return;
     loadFromGoogleSheet(googleSheetUrl, silent);
   };
@@ -195,6 +180,15 @@ const App: React.FC = () => {
   };
 
   const updateLocalState = (data: AppData) => {
+    // 저장 직후 10초간은 외부 데이터 반영 차단 (이중 안전장치)
+    if (Date.now() - lastSaveTimeRef.current < 10000) return;
+
+    if (data.departments && Array.isArray(data.departments)) {
+      setDepartments(prev => {
+        if (JSON.stringify(prev) !== JSON.stringify(data.departments)) return data.departments;
+        return prev;
+      });
+    }
     if (data.records && Array.isArray(data.records)) {
       setRecords(prev => {
         if (JSON.stringify(prev) !== JSON.stringify(data.records)) return data.records;
@@ -218,12 +212,24 @@ const App: React.FC = () => {
     }
   };
 
-  const saveData = async (newRecords: ReadingRecord[], newHistory: PopulationLog[], newUsers: UserProfile[] = allUsers) => {
+  const saveData = async (newRecords: ReadingRecord[], newHistory: PopulationLog[], newUsers: UserProfile[] = allUsers, newDepartments: Department[] = departments) => {
     setIsSyncing(true);
-    const payload = { records: newRecords, popHistory: newHistory, users: newUsers };
+    lastSaveTimeRef.current = Date.now(); // 저장 시작 시점 기록
+
+    // Optimistic Update (UI 즉시 반영)
+    setRecords(newRecords);
+    setPopHistory(newHistory);
+    setAllUsers(newUsers);
+    setDepartments(newDepartments);
+
+    const payload = { 
+      records: newRecords, 
+      popHistory: newHistory, 
+      users: newUsers,
+      departments: newDepartments 
+    };
     
     try {
-      // 1. Google Sheets Save (Primary)
       await fetch(googleSheetUrl, {
         method: 'POST',
         mode: 'no-cors', 
@@ -231,32 +237,65 @@ const App: React.FC = () => {
         body: JSON.stringify(payload)
       });
 
-      // 2. JsonBlob Backup (Secondary, Silent)
-      // 혹시 모를 상황을 위해 JsonBlob에도 백업을 시도합니다. 실패해도 메인 로직에는 영향 없음.
       fetch(`${SYNC_API_BASE}/${SHARED_CLOUD_ID}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       }).catch(err => console.warn('Backup failed:', err));
       
-      setRecords(newRecords);
-      setPopHistory(newHistory);
-      setAllUsers(newUsers); // 유저 정보도 로컬 업데이트
-      
-      setTimeout(() => triggerSync(true), 2000); 
+      // 저장 성공으로 간주하고 다시 타임스탬프 갱신
+      lastSaveTimeRef.current = Date.now();
+
+      // 3초 후 강제 동기화 시도 (단, triggerSync 내부에서 10초 쿨타임 체크하므로 실질적으로는 스킵될 수 있음. 
+      // 이는 의도된 동작으로, 사용자가 계속 앱을 켜두면 10초 후 자연스럽게 동기화됨)
+      setTimeout(() => {
+        if (Date.now() - lastSaveTimeRef.current >= 10000) triggerSync(true);
+      }, 3000);
+
     } catch (e) {
       alert("저장 실패! 인터넷 연결을 확인해주세요.");
+      // 실패 시 쿨타임 해제하여 다시 불러오도록 함
+      lastSaveTimeRef.current = 0;
     } finally {
       setIsSyncing(false);
     }
   };
 
-
   // --------------------------------------------------------------------------
   // 3. Actions
   // --------------------------------------------------------------------------
+  const handleSelectDepartment = async (deptId: DepartmentId) => {
+    if (!user) return;
+    if (!inputName.trim()) {
+        alert("이름을 입력해주세요.");
+        return;
+    }
+    
+    const newProfile: UserProfile = {
+      uid: user.uid,
+      displayName: inputName.trim(), 
+      email: user.email,
+      departmentId: deptId
+    };
+
+    setUserProfile(newProfile);
+    setIsChangingDept(false);
+
+    const otherUsers = allUsers.filter(u => u.uid !== user.uid);
+    const nextAllUsers = [...otherUsers, newProfile];
+    setAllUsers(nextAllUsers);
+
+    await saveData(records, popHistory, nextAllUsers);
+  };
+
+  const startEditing = () => {
+      if (userProfile) {
+          setInputName(userProfile.displayName);
+      }
+      setIsChangingDept(true);
+  };
+
   const addRecord = async (chapters: number, customDate?: string, targetDeptId?: DepartmentId, isAdminRecord: boolean = false) => {
-    // 관리자 기록인 경우 로그인 여부와 관계없이 targetDeptId만 있으면 됨
     if (!isAdminRecord && (!user || !userProfile?.departmentId)) return;
     if (isAdminRecord && !targetDeptId) return;
 
@@ -268,7 +307,7 @@ const App: React.FC = () => {
       id: crypto.randomUUID(),
       departmentId: targetDeptId || userProfile!.departmentId!,
       userId: user?.uid || 'admin',
-      userName: userProfile?.displayName || '관리자', // 현재 프로필의 이름 사용 혹은 기본값
+      userName: userProfile?.displayName || '관리자',
       chapters,
       date: recordDate.toISOString(),
       isAdminRecord: isAdminRecord
@@ -284,6 +323,45 @@ const App: React.FC = () => {
     const nextRecords = records.filter(r => r.id !== id);
     setRecords(nextRecords);
     await saveData(nextRecords, popHistory);
+  };
+
+  // --- Department Management (Admin) ---
+  const handleAddDepartment = async () => {
+    if (!newDeptName.trim()) {
+      alert('부서 이름을 입력해주세요.');
+      return;
+    }
+    const newId = crypto.randomUUID();
+    const newDept: Department = {
+      id: newId,
+      name: newDeptName.trim(),
+      emoji: newDeptEmoji,
+      color: newDeptColor
+    };
+    const nextDepts = [...departments, newDept];
+    
+    // Update temp populations for UI consistency
+    setTempPopulations(prev => ({ ...prev, [newId]: 10 }));
+    
+    setDepartments(nextDepts);
+    setNewDeptName('');
+    await saveData(records, popHistory, allUsers, nextDepts);
+    alert(`${newDept.name} 부서가 추가되었습니다.`);
+  };
+
+  const handleDeleteDepartment = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // 버튼 클릭시 이벤트 전파 방지
+    if (!window.confirm('정말 이 부서를 삭제하시겠습니까?\n해당 부서의 기록은 유지되지만, 레이스 및 선택 목록에서 사라집니다.')) return;
+    
+    // 1. UI 즉시 반영 (낙관적 업데이트)
+    const nextDepts = departments.filter(d => d.id !== id);
+    setDepartments(nextDepts); // 즉시 상태 변경
+
+    // 2. 서버 저장
+    await saveData(records, popHistory, allUsers, nextDepts);
+    
+    // 3. 완료 피드백
+    alert('부서가 삭제되었습니다.');
   };
 
   const handleApplyPopulations = async () => {
@@ -307,9 +385,6 @@ const App: React.FC = () => {
     if (adminInput === 'djcjbch') {
       setIsAdminMode(true);
       setAdminInput('');
-      if (popHistory.length > 0) {
-         setTempPopulations(popHistory[popHistory.length - 1].populations);
-      }
     } else {
       alert('비밀번호가 틀렸습니다.');
     }
@@ -322,19 +397,37 @@ const App: React.FC = () => {
     alert('구글 스프레드시트 주소가 갱신되었습니다.');
   };
 
+  const handleLoadBackup = async () => {
+    if (!window.confirm('현재 데이터를 덮어쓰고 최신 백업본(JsonBlob)을 불러오시겠습니까?')) return;
+    
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${SYNC_API_BASE}/${SHARED_CLOUD_ID}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data) {
+           // 백업 복원 시에는 쿨타임 무시하고 즉시 반영
+           lastSaveTimeRef.current = 0; 
+           updateLocalState(data);
+           alert('백업 데이터가 복구되었습니다.');
+        } else {
+           alert('백업 데이터가 비어있습니다.');
+        }
+      } else {
+        throw new Error('Fetch failed');
+      }
+    } catch (e) {
+      alert('백업 불러오기 실패');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const copyLink = () => {
     navigator.clipboard.writeText(window.location.href);
     setCopyFeedback(true);
     setTimeout(() => setCopyFeedback(false), 2000);
   };
-
-  // Calculate my total chapters
-  const myTotalChapters = useMemo(() => {
-    if (!user) return 0;
-    return records
-      .filter(r => r.userId === user.uid)
-      .reduce((sum, r) => sum + r.chapters, 0);
-  }, [records, user]);
 
   // --------------------------------------------------------------------------
   // View: Setup Required
@@ -364,7 +457,7 @@ const App: React.FC = () => {
   }
 
   // --------------------------------------------------------------------------
-  // View: Department Selection (Initial or Changing)
+  // View: Department Selection
   // --------------------------------------------------------------------------
   if (user && (!userProfile?.departmentId || isChangingDept)) {
     return (
@@ -395,7 +488,7 @@ const App: React.FC = () => {
            <div className="space-y-2">
              <label className="text-xs font-bold text-slate-500 pl-1">소속 부서 선택 (저장)</label>
              <div className="grid grid-cols-1 gap-3">
-               {DEPARTMENTS.map(dept => (
+               {departments.map(dept => (
                  <button
                    key={dept.id}
                    onClick={() => handleSelectDepartment(dept.id)}
@@ -472,14 +565,14 @@ const App: React.FC = () => {
 
       <main className="max-w-3xl mx-auto px-4 py-6 space-y-6">
         
-        {/* User Greeting Info (Only if logged in) */}
+        {/* User Greeting Info (Modified: Removed Cumulative Count) */}
         {user && userProfile?.departmentId && (
             <section className="flex items-center justify-between px-2 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
             <div>
                 <p className="text-xs font-bold text-slate-400 mb-1">나의 소속</p>
                 <div className="flex items-center gap-2">
                   <h2 className="text-xl font-black text-slate-800">
-                      {DEPARTMENTS.find(d => d.id === userProfile.departmentId)?.name}
+                      {departments.find(d => d.id === userProfile.departmentId)?.name || '삭제된 부서'}
                   </h2>
                   <button 
                     onClick={startEditing}
@@ -492,9 +585,6 @@ const App: React.FC = () => {
                 <div className="mt-1 flex items-center gap-2">
                    <span className="bg-indigo-50 text-indigo-600 text-[11px] px-2 py-0.5 rounded-full font-bold border border-indigo-100">
                     {userProfile.displayName}
-                   </span>
-                   <span className="bg-slate-100 text-slate-500 text-[11px] px-2 py-0.5 rounded-full font-bold border border-slate-200">
-                    누적 {myTotalChapters}장
                    </span>
                 </div>
             </div>
@@ -514,7 +604,7 @@ const App: React.FC = () => {
             <h2 className="text-lg font-black text-slate-800">실시간 순위</h2>
           </div>
           <div className="p-2 sm:p-6">
-            <RaceTrack records={records} popHistory={popHistory} />
+            <RaceTrack records={records} popHistory={popHistory} departments={departments} />
           </div>
         </section>
 
@@ -533,11 +623,12 @@ const App: React.FC = () => {
               onLogin={handleGoogleLogin}
               onAdd={addRecord}
               isAdminMode={isAdminMode} 
+              departments={departments}
             />
           </div>
         </section>
 
-        {/* New: Calendar Section (Logged in only) */}
+        {/* Calendar Section */}
         {user && (
            <section className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="p-6 border-b border-slate-50 flex items-center gap-3">
@@ -561,7 +652,7 @@ const App: React.FC = () => {
               </div>
               <h2 className="text-lg font-black text-slate-800">통계 분석</h2>
             </div>
-            <div className="p-6"><Statistics records={records} popHistory={popHistory} isAdmin={isAdminMode} /></div>
+            <div className="p-6"><Statistics records={records} popHistory={popHistory} isAdmin={isAdminMode} departments={departments} /></div>
           </section>
 
           <section className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
@@ -575,7 +666,7 @@ const App: React.FC = () => {
               </div>
               <ChevronRight className="w-5 h-5 text-slate-300" />
             </div>
-            <div className="p-4"><HistoryTable records={records} onDelete={deleteRecord} isAdmin={isAdminMode} /></div>
+            <div className="p-4"><HistoryTable records={records} onDelete={deleteRecord} isAdmin={isAdminMode} departments={departments} /></div>
           </section>
         </div>
 
@@ -617,8 +708,51 @@ const App: React.FC = () => {
                     <button onClick={() => setIsAdminMode(false)} className="text-xs text-slate-400">로그아웃</button>
                   </div>
 
-                  {/* 1. 인원 설정 */}
+                  {/* 1. Department Management (NEW) */}
                   <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold text-slate-300">부서 관리 (추가/삭제)</h3>
+                    </div>
+                    
+                    {/* List Existing */}
+                    <div className="space-y-2">
+                      {departments.map(dept => (
+                        <div key={dept.id} className="flex items-center justify-between bg-slate-800 p-3 rounded-xl border border-slate-700">
+                           <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-700" style={{ color: dept.color }}>{dept.emoji}</div>
+                              <span className="font-bold">{dept.name}</span>
+                           </div>
+                           <button 
+                             type="button"
+                             onClick={(e) => handleDeleteDepartment(dept.id, e)} 
+                             className="text-slate-500 hover:text-red-400 p-2 rounded-lg hover:bg-slate-700/50 transition-colors"
+                             title="부서 삭제"
+                           >
+                             <Trash2 className="w-4 h-4" />
+                           </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Add New Form */}
+                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 space-y-3">
+                        <p className="text-xs text-slate-400 font-bold mb-2">새 부서 추가</p>
+                        <div className="flex gap-2">
+                           <input type="text" value={newDeptName} onChange={e => setNewDeptName(e.target.value)} placeholder="부서명" className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white" />
+                           <input type="text" value={newDeptEmoji} onChange={e => setNewDeptEmoji(e.target.value)} placeholder="이모지" className="w-16 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-center text-white" />
+                        </div>
+                        <div className="flex gap-2 items-center">
+                           <Palette className="w-4 h-4 text-slate-400" />
+                           <input type="color" value={newDeptColor} onChange={e => setNewDeptColor(e.target.value)} className="w-8 h-8 rounded cursor-pointer bg-transparent" />
+                           <button onClick={handleAddDepartment} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2">
+                             <Plus className="w-3 h-3" /> 부서 추가
+                           </button>
+                        </div>
+                    </div>
+                  </div>
+
+                  {/* 2. 인원 설정 */}
+                  <div className="space-y-4 pt-4 border-t border-slate-700">
                     <div className="flex items-center justify-between">
                         <h3 className="text-sm font-bold text-slate-300">부서 인원 조정</h3>
                         <div className="flex items-center gap-2">
@@ -631,25 +765,23 @@ const App: React.FC = () => {
                              />
                         </div>
                     </div>
-                    <p className="text-[10px] text-slate-400 mb-2">
-                        * 설정한 날짜부터 해당 인원수가 적용됩니다.
-                    </p>
-                    <div className="grid grid-cols-3 gap-2">
-                      {DEPARTMENTS.map(dept => (
-                        <div key={dept.id} className="bg-slate-800/50 p-3 rounded-xl border border-slate-700/50 text-center">
-                          <div className="w-2 h-2 rounded-full mx-auto mb-2" style={{ backgroundColor: dept.color }} />
-                          <input type="number" value={tempPopulations[dept.id]} onChange={(e) => setTempPopulations(prev => ({ ...prev, [dept.id]: parseInt(e.target.value) || 1 }))} className="w-full bg-transparent text-center text-white font-black text-lg outline-none" />
+                    <div className="grid grid-cols-2 gap-2">
+                      {departments.map(dept => (
+                        <div key={dept.id} className="bg-slate-800/50 p-3 rounded-xl border border-slate-700/50 flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: dept.color }} />
+                          <span className="text-xs text-slate-400 flex-1">{dept.name}</span>
+                          <input type="number" value={tempPopulations[dept.id] || ''} onChange={(e) => setTempPopulations(prev => ({ ...prev, [dept.id]: parseInt(e.target.value) || 1 }))} className="w-12 bg-transparent text-right text-white font-black text-sm outline-none" />
                         </div>
                       ))}
                     </div>
                     <button onClick={handleApplyPopulations} className="w-full bg-slate-700 hover:bg-slate-600 rounded-xl p-3 font-bold text-sm text-slate-200">인원 변경사항 저장</button>
                   </div>
                   
-                  {/* 2. 구글 시트 연동 설정 */}
+                  {/* 3. 구글 시트 & 백업 */}
                   <div className="space-y-4 pt-4 border-t border-slate-700">
                     <div className="flex items-center justify-between">
                        <h3 className="text-sm font-bold text-slate-300 flex items-center gap-2">
-                         <Settings className="w-4 h-4" /> 데이터 저장소 설정
+                         <Settings className="w-4 h-4" /> 데이터 설정
                        </h3>
                     </div>
                     
@@ -659,19 +791,26 @@ const App: React.FC = () => {
                             <FileSpreadsheet className="w-4 h-4 text-green-400" />
                             <span className="text-sm font-bold text-green-300">구글 시트 연동 중</span>
                           </div>
-                          <p className="text-[10px] text-slate-400 break-all mb-3 bg-black/20 p-2 rounded">{googleSheetUrl}</p>
                           <div className="flex gap-2">
                              <input 
                                 type="text" 
                                 value={googleSheetUrl}
                                 onChange={(e) => setGoogleSheetUrl(e.target.value)}
                                 className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white"
-                                placeholder="URL 변경 필요 시 입력"
+                                placeholder="URL"
                               />
                              <button onClick={handleGoogleSheetSave} className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-xs font-bold">
-                               URL 수정
+                               수정
                              </button>
                           </div>
+                        </div>
+                        <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
+                           <button 
+                             onClick={handleLoadBackup}
+                             className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2"
+                           >
+                             <Download className="w-3 h-3" /> 최신 백업본 불러오기 (JsonBlob)
+                           </button>
                         </div>
                     </div>
                   </div>

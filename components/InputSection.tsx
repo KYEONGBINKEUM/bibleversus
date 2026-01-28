@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { DepartmentId } from '../types';
-import { DEPARTMENTS } from '../constants';
+import { DepartmentId, Department } from '../types';
 import { CheckCircle2, Calendar, Info, ShieldCheck, ChevronDown } from 'lucide-react';
 
 interface InputSectionProps {
@@ -9,6 +8,7 @@ interface InputSectionProps {
   onLogin: () => void;
   onAdd: (chapters: number, date?: string, targetDeptId?: DepartmentId, isAdminRecord?: boolean) => void;
   isAdminMode: boolean;
+  departments: Department[];
 }
 
 const getKSTDateString = () => {
@@ -18,11 +18,11 @@ const getKSTDateString = () => {
   return kstObj.toISOString().split('T')[0];
 };
 
-const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onLogin, onAdd, isAdminMode }) => {
+const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onLogin, onAdd, isAdminMode, departments }) => {
   const [input, setInput] = useState('');
   const [date, setDate] = useState(getKSTDateString());
   const [isDateEditable, setIsDateEditable] = useState(false);
-  const [selectedDeptId, setSelectedDeptId] = useState<DepartmentId | undefined>(userDeptId || 'GIDEON');
+  const [selectedDeptId, setSelectedDeptId] = useState<DepartmentId | undefined>(userDeptId || (departments.length > 0 ? departments[0].id : ''));
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -58,7 +58,7 @@ const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onL
 
   // 관리자 모드일 때는 선택된 부서를, 아닐 때는 자신의 부서를 사용
   const currentDeptId = isAdminMode ? (selectedDeptId || userDeptId) : userDeptId;
-  const myDept = DEPARTMENTS.find(d => d.id === currentDeptId);
+  const myDept = departments.find(d => d.id === currentDeptId);
 
   // 2. 로그인 했으나 부서 정보가 없는 경우
   if (!myDept && !isAdminMode) return <div className="text-center text-slate-400 py-4">부서 정보를 불러오는 중...</div>;
@@ -98,7 +98,7 @@ const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onL
                                         className="w-full appearance-none bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold text-slate-800 outline-none focus:border-amber-500 focus:ring-4 focus:ring-amber-100 transition-all text-sm"
                                     >
                                         <option value="" disabled>부서 선택</option>
-                                        {DEPARTMENTS.map(d => (
+                                        {departments.map(d => (
                                             <option key={d.id} value={d.id}>{d.emoji} {d.name}</option>
                                         ))}
                                     </select>

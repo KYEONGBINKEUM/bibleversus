@@ -1,14 +1,14 @@
 import React from 'react';
-import { DepartmentId, ReadingRecord, PopulationLog } from '../types';
-import { DEPARTMENTS } from '../constants';
+import { DepartmentId, ReadingRecord, PopulationLog, Department } from '../types';
 import { Trophy, Target, Crown, Users } from 'lucide-react';
 
 interface RaceTrackProps {
   records: ReadingRecord[];
   popHistory: PopulationLog[];
+  departments: Department[];
 }
 
-const RaceTrack: React.FC<RaceTrackProps> = ({ records, popHistory }) => {
+const RaceTrack: React.FC<RaceTrackProps> = ({ records, popHistory, departments }) => {
   
   // 특정 날짜의 부서 인원을 찾는 헬퍼 함수
   const getPopulationAtDate = (dateStr: string, deptId: DepartmentId): number => {
@@ -26,10 +26,7 @@ const RaceTrack: React.FC<RaceTrackProps> = ({ records, popHistory }) => {
     return applicableLog.populations[deptId] || 1;
   };
 
-  // 점수 계산 로직: 
-  // 1. 일반 기록(isAdminRecord: false) -> 사용자별/날짜별로 합산 후 4장 제한 캡핑
-  // 2. 관리자 기록(isAdminRecord: true) -> 제한 없이 모든 장수를 합산
-  const scores = DEPARTMENTS.reduce((acc, dept) => {
+  const scores = departments.reduce((acc, dept) => {
     const deptRecords = records.filter(r => r.departmentId === dept.id);
     
     // 일반 기록 그룹화 (user_date_key -> sum)
@@ -63,30 +60,33 @@ const RaceTrack: React.FC<RaceTrackProps> = ({ records, popHistory }) => {
     return acc;
   }, {} as Record<DepartmentId, number>);
 
-  const maxScore = Math.max(...Object.values(scores), 0.1);
+  // Fix: Explicitly cast values to number[] to resolve TS error 'unknown is not assignable to number'
+  const maxScore = Math.max(...(Object.values(scores) as number[]), 0.1);
 
   // 현재 시점의 인원수 (화면 표시용)
   const currentPops = popHistory.length > 0
     ? [...popHistory].sort((a,b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())[0].populations
-    : { GIDEON: 10, DANIEL: 10, JOSEPH: 10 };
+    : {};
 
   // 순위 계산
-  const rankings = [...DEPARTMENTS].sort((a, b) => scores[b.id] - scores[a.id]);
-  const leaderId = rankings[0].id;
+  const rankings = [...departments].sort((a, b) => (scores[b.id] || 0) - (scores[a.id] || 0));
+  const leaderId = rankings.length > 0 ? rankings[0].id : null;
 
   return (
     <div className="relative pt-10 pb-16 px-4 md:px-12 bg-gradient-to-b from-slate-50 to-slate-200 rounded-[3rem] border border-slate-300 shadow-inner overflow-hidden">
       <div className="relative space-y-4" style={{ perspective: '1200px' }}>
-        {DEPARTMENTS.map((dept, index) => {
-          const score = scores[dept.id];
-          const pop = currentPops[dept.id];
+        {departments.map((dept, index) => {
+          const score = scores[dept.id] || 0;
+          const pop = currentPops[dept.id] || 1;
           const progress = Math.min((score / maxScore) * 85, 85);
           const isLeader = dept.id === leaderId && score > 0;
           
           return (
             <div key={dept.id} className="relative group transition-all duration-500" style={{ transform: `rotateX(15deg) translateZ(${index * 2}px)`, transformStyle: 'preserve-3d' }}>
               <div className="absolute -top-8 left-2 flex items-center gap-3 z-20">
-                <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white shadow-md text-[10px] font-black" style={{ color: dept.color }}>{index + 1}</span>
+                <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white shadow-md text-[10px] font-black" style={{ color: dept.color }}>
+                  {rankings.findIndex(r => r.id === dept.id) + 1}
+                </span>
                 <span className="text-xs font-black text-slate-700">{dept.name}</span>
                 <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 bg-slate-100/50 px-2 py-0.5 rounded-full">
                   <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: dept.color }} />
@@ -105,7 +105,7 @@ const RaceTrack: React.FC<RaceTrackProps> = ({ records, popHistory }) => {
                       <div className="absolute inset-0 opacity-10 pointer-events-none grid grid-cols-2 gap-1 p-2">
                         {[...Array(4)].map((_, i) => <div key={i} className="bg-black rounded-lg" />)}
                       </div>
-                      <span className="text-4xl filter drop-shadow-md select-none transform transition-transform group-hover:scale-125">🐢</span>
+                      <span className="text-4xl filter drop-shadow-md select-none transform transition-transform group-hover:scale-125">{dept.emoji}</span>
                       <div className="absolute -bottom-1 -right-1 bg-white rounded-full w-8 h-8 flex flex-col items-center justify-center shadow-lg border-2 z-40" style={{ borderColor: dept.color }}>
                         <span className="text-[9px] font-black text-slate-800 leading-none">{score.toFixed(1)}</span>
                         <span className="text-[6px] font-bold text-slate-400 leading-none">점</span>
@@ -135,7 +135,7 @@ const RaceTrack: React.FC<RaceTrackProps> = ({ records, popHistory }) => {
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Live Race Status</p>
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-sm font-bold text-slate-600">현재 선두: <span className="text-indigo-600">{rankings[0].name}</span></span>
+            <span className="text-sm font-bold text-slate-600">현재 선두: <span className="text-indigo-600">{rankings.length > 0 ? rankings[0].name : '-'}</span></span>
           </div>
         </div>
         <div className="flex flex-col items-end gap-1">

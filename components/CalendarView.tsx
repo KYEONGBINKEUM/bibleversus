@@ -27,10 +27,12 @@ const CalendarView: React.FC<CalendarViewProps> = ({ records, userId }) => {
   // Filter records for this user
   const userRecords = useMemo(() => records.filter(r => r.userId === userId), [records, userId]);
 
-  // Calculate All Time Total
-  const totalAllTime = useMemo(() => 
-    userRecords.reduce((sum, r) => sum + r.chapters, 0), 
-    [userRecords]
+  // Calculate Yearly Total (Modified from All Time)
+  const totalYearly = useMemo(() => 
+    userRecords
+      .filter(r => new Date(r.date).getFullYear() === year)
+      .reduce((sum, r) => sum + r.chapters, 0), 
+    [userRecords, year]
   );
 
   // Calculate Monthly Data & Total
@@ -92,8 +94,8 @@ const CalendarView: React.FC<CalendarViewProps> = ({ records, userId }) => {
         <div className="flex gap-3">
              <div className="flex-1 bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100 flex items-center justify-between">
                  <div>
-                     <p className="text-xs font-bold text-slate-500 mb-1">전체 누적</p>
-                     <p className="text-2xl font-black text-indigo-600 leading-none">{totalAllTime}<span className="text-sm text-indigo-400 ml-1 font-bold">장</span></p>
+                     <p className="text-xs font-bold text-slate-500 mb-1">{year}년 누적</p>
+                     <p className="text-2xl font-black text-indigo-600 leading-none">{totalYearly}<span className="text-sm text-indigo-400 ml-1 font-bold">장</span></p>
                  </div>
                  <div className="bg-white p-2 rounded-xl text-indigo-200">
                      <BookOpen className="w-5 h-5 text-indigo-500" />
@@ -142,11 +144,6 @@ const CalendarView: React.FC<CalendarViewProps> = ({ records, userId }) => {
                     <div className="flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
                         <span>읽은 장수</span>
-                    </div>
-                    <span className="text-slate-300">|</span>
-                    <div className="flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                        <span>일요일</span>
                     </div>
                 </div>
             </div>

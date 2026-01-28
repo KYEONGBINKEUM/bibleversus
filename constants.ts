@@ -1,6 +1,7 @@
+
 import { Department } from './types';
 
-export const DEPARTMENTS: Department[] = [
+export const INITIAL_DEPARTMENTS: Department[] = [
   { id: 'GIDEON', name: '기드온부', color: '#ef4444', emoji: '🐢' },
   { id: 'DANIEL', name: '다니엘부', color: '#3b82f6', emoji: '🐢' },
   { id: 'JOSEPH', name: '요셉부', color: '#10b981', emoji: '🐢' },
