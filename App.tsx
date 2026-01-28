@@ -25,6 +25,18 @@ interface AppData {
   departments?: Department[]; // Dynamic departments
 }
 
+// Helper: ISO 문자열을 KST 날짜 문자열(YYYY-MM-DD)로 변환
+const getKSTDateFromISO = (iso: string) => {
+  try {
+    const date = new Date(iso);
+    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+    const kstObj = new Date(utc + (9 * 60 * 60 * 1000));
+    return kstObj.toISOString().split('T')[0];
+  } catch (e) {
+    return iso.split('T')[0]; // Fallback
+  }
+};
+
 const App: React.FC = () => {
   // --- Auth & User State ---
   const [user, setUser] = useState<firebaseAuth.User | null>(null);
@@ -308,12 +320,11 @@ const App: React.FC = () => {
     
     // 해당 날짜/사용자의 기존 기록 찾기
     const existingIndex = updatedRecords.findIndex(r => {
-        const recordDateStr = r.date.split('T')[0];
+        // 날짜 비교 시 ISO 원본이 아닌 KST 변환값으로 비교해야 정확함
+        const recordDateStr = getKSTDateFromISO(r.date);
         const isSameDate = recordDateStr === targetDateStr;
         
         if (isAdminRecord) {
-            // 관리자는 부서별, 날짜별 관리자 기록이 하나라고 가정하거나, 
-            // 현재 로직상 'admin' userId로 기록되므로 부서와 날짜로 식별
             return isSameDate && r.isAdminRecord && r.departmentId === targetDeptId;
         } else {
             return isSameDate && r.userId === targetUserId;
@@ -330,11 +341,11 @@ const App: React.FC = () => {
         };
     } else {
         // 새 기록 추가
+        // 날짜 생성 시 타임존 오차 방지를 위해 명시적으로 년,월,일로 생성
+        const [y, m, d] = targetDateStr.split('-').map(Number);
         const now = new Date();
-        const recordDate = new Date(targetDateStr);
-        // 정렬을 위해 현재 시간만 반영, 날짜는 선택한 날짜
-        recordDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
-
+        const recordDate = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds());
+        
         const newRecord: ReadingRecord = {
           id: crypto.randomUUID(),
           departmentId: targetDeptId || userProfile!.departmentId!,
@@ -568,7 +579,7 @@ const App: React.FC = () => {
             </div>
             <div className="flex flex-col">
               <h1 className="text-lg font-[900] text-slate-800 leading-none tracking-tight">
-                부서 <span className="text-indigo-600">성경읽기대항전</span>
+                부서별<span className="text-indigo-600">성경읽기대항전</span>
               </h1>
             </div>
           </div>
@@ -670,7 +681,7 @@ const App: React.FC = () => {
                  <div className="bg-violet-50 p-2 rounded-xl">
                    <Calendar className="w-5 h-5 text-violet-600" />
                  </div>
-                 <h2 className="text-lg font-black text-slate-800">나의 성경읽기 캘린더</h2>
+                 <h2 className="text-lg font-black text-slate-800">나의 독서 캘린더</h2>
               </div>
               <div className="p-6">
                  <CalendarView records={records} userId={user.uid} />

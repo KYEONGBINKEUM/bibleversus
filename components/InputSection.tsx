@@ -20,6 +20,18 @@ const getKSTDateString = () => {
   return kstObj.toISOString().split('T')[0];
 };
 
+// Helper to match the App.tsx logic for consistency
+const getKSTDateFromISO = (iso: string) => {
+  try {
+    const date = new Date(iso);
+    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+    const kstObj = new Date(utc + (9 * 60 * 60 * 1000));
+    return kstObj.toISOString().split('T')[0];
+  } catch (e) {
+    return iso.split('T')[0];
+  }
+};
+
 const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onLogin, onAdd, isAdminMode, departments, records, userId }) => {
   const [input, setInput] = useState('');
   const [date, setDate] = useState(getKSTDateString());
@@ -50,7 +62,8 @@ const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onL
     
     // 해당 조건에 맞는 기록 찾기
     const foundRecord = records.find(r => {
-        const rDate = r.date.split('T')[0];
+        // 날짜 비교 시 ISO 원본이 아닌 KST 변환값으로 비교 (App.tsx와 동일 로직)
+        const rDate = getKSTDateFromISO(r.date);
         const isDateMatch = rDate === date;
 
         if (isAdminMode) {
