@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ReadingRecord, DepartmentId, DepartmentPopulations, PopulationLog, UserProfile, Department } from './types';
-import { INITIAL_DEPARTMENTS, DEFAULT_GOOGLE_SHEET_URL, SYNC_API_BASE, SHARED_CLOUD_ID } from './constants';
+import { INITIAL_DEPARTMENTS, DEFAULT_GOOGLE_SHEET_URL, SYNC_API_BASE, SHARED_CLOUD_ID, LOCAL_STORAGE_KEY } from './constants';
 import RaceTrack from './components/RaceTrack';
 import InputSection from './components/InputSection';
 import HistoryTable from './components/HistoryTable';
@@ -150,14 +150,39 @@ const App: React.FC = () => {
   // 2. Data Sync
   // --------------------------------------------------------------------------
   useEffect(() => {
-    loadFromGoogleSheet(googleSheetUrl);
+    // 1. Try Local Storage first (Cache)
+    let loadedLocal = false;
+    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (saved) {
+      try {
+        const parsed: AppData = JSON.parse(saved);
+        if (parsed) {
+           if(parsed.departments) setDepartments(parsed.departments);
+           if(parsed.records) setRecords(parsed.records);
+           if(parsed.popHistory) setPopHistory(parsed.popHistory);
+           if(parsed.users) setAllUsers(parsed.users);
+           // 로컬 데이터가 있으면 로딩 화면 즉시 해제
+           setIsLoading(false); 
+           loadedLocal = true;
+        }
+      } catch (e) {
+        console.warn("Local storage load failed", e);
+      }
+    }
+
+    // 2. Fetch from network (Silent update if local data exists)
+    loadFromGoogleSheet(googleSheetUrl, loadedLocal);
+
+    // 3. Periodic Sync
     const interval = setInterval(() => {
       if (!document.hidden) triggerSync(true);
     }, 5000);
+
     const handleVisibilityChange = () => {
       if (!document.hidden) triggerSync(true);
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -194,6 +219,13 @@ const App: React.FC = () => {
   const updateLocalState = (data: AppData) => {
     // 저장 직후 10초간은 외부 데이터 반영 차단 (이중 안전장치)
     if (Date.now() - lastSaveTimeRef.current < 10000) return;
+
+    // [Cache] Save latest data to LocalStorage
+    try {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
+    } catch(e) {
+        console.warn("LocalStorage save failed", e);
+    }
 
     if (data.departments && Array.isArray(data.departments)) {
       setDepartments(prev => {
@@ -240,6 +272,13 @@ const App: React.FC = () => {
       users: newUsers,
       departments: newDepartments 
     };
+
+    // [Cache] Save optimistic state to LocalStorage
+    try {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(payload));
+    } catch(e) {
+        console.warn("LocalStorage save failed", e);
+    }
     
     try {
       await fetch(googleSheetUrl, {
@@ -307,66 +346,108 @@ const App: React.FC = () => {
       setIsChangingDept(true);
   };
 
-  // 기록 저장 (수정 및 추가)
+  // 기록 저장 (수정 및 추가) - Safe Logic Applied
   const saveDailyRecord = async (chapters: number, customDateStr?: string, targetDeptId?: DepartmentId, isAdminRecord: boolean = false) => {
     if (!isAdminRecord && (!user || !userProfile?.departmentId)) return;
     if (isAdminRecord && !targetDeptId) return;
 
+    if (isSyncing) {
+        alert("현재 다른 데이터를 저장 중입니다. 잠시만 기다려주세요.");
+        return;
+    }
+
     const targetUserId = isAdminRecord ? 'admin' : (user?.uid || 'unknown');
-    // 날짜 비교를 위해 YYYY-MM-DD 포맷 추출
     const targetDateStr = customDateStr || new Date().toISOString().split('T')[0];
     
-    let updatedRecords = [...records];
-    
-    // 해당 날짜/사용자의 기존 기록 찾기
-    const existingIndex = updatedRecords.findIndex(r => {
-        // 날짜 비교 시 ISO 원본이 아닌 KST 변환값으로 비교해야 정확함
-        const recordDateStr = getKSTDateFromISO(r.date);
-        const isSameDate = recordDateStr === targetDateStr;
-        
-        if (isAdminRecord) {
-            return isSameDate && r.isAdminRecord && r.departmentId === targetDeptId;
-        } else {
-            return isSameDate && r.userId === targetUserId;
-        }
-    });
+    setIsSyncing(true); // Lock to prevent double submit
 
-    if (existingIndex >= 0) {
-        // 기존 기록 수정 (덮어쓰기)
-        updatedRecords[existingIndex] = {
-            ...updatedRecords[existingIndex],
-            chapters: chapters,
-            // 부서가 변경되었을 수도 있으므로 최신 부서 ID 반영
-            departmentId: targetDeptId || updatedRecords[existingIndex].departmentId
-        };
-    } else {
-        // 새 기록 추가
-        // 날짜 생성 시 타임존 오차 방지를 위해 명시적으로 년,월,일로 생성
-        const [y, m, d] = targetDateStr.split('-').map(Number);
-        const now = new Date();
-        const recordDate = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds());
+    try {
+        // [Safety Check] 1. Fetch latest data first (Fetch)
+        // 저장 직전 서버 데이터를 한 번 더 가져와서 충돌 방지
+        const uniqueUrl = `${googleSheetUrl}${googleSheetUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
+        const res = await fetch(uniqueUrl);
+        let latestRecords: ReadingRecord[] = records;
         
-        const newRecord: ReadingRecord = {
-          id: crypto.randomUUID(),
-          departmentId: targetDeptId || userProfile!.departmentId!,
-          userId: targetUserId,
-          userName: isAdminRecord ? '관리자' : (userProfile?.displayName || '이름 없음'),
-          chapters,
-          date: recordDate.toISOString(),
-          isAdminRecord: isAdminRecord
-        };
-        updatedRecords = [newRecord, ...updatedRecords];
+        if (res.ok) {
+            const data = await res.json();
+            if (data && Array.isArray(data.records)) {
+                latestRecords = data.records;
+            }
+        }
+
+        // [Merge Logic] 2. Apply my changes to the LATEST data (Merge)
+        // 화면에 보이던 데이터가 아닌, 방금 가져온 최신 데이터 위에 내 기록을 덧씌움
+        let updatedRecords = [...latestRecords];
+        
+        const existingIndex = updatedRecords.findIndex(r => {
+            const recordDateStr = getKSTDateFromISO(r.date);
+            const isSameDate = recordDateStr === targetDateStr;
+            
+            if (isAdminRecord) {
+                return isSameDate && r.isAdminRecord && r.departmentId === targetDeptId;
+            } else {
+                return isSameDate && r.userId === targetUserId;
+            }
+        });
+
+        if (existingIndex >= 0) {
+            // Modify existing
+            updatedRecords[existingIndex] = {
+                ...updatedRecords[existingIndex],
+                chapters: chapters,
+                departmentId: targetDeptId || updatedRecords[existingIndex].departmentId
+            };
+        } else {
+            // Append new
+            const [y, m, d] = targetDateStr.split('-').map(Number);
+            const now = new Date();
+            const recordDate = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds());
+            
+            const newRecord: ReadingRecord = {
+                id: crypto.randomUUID(),
+                departmentId: targetDeptId || userProfile!.departmentId!,
+                userId: targetUserId,
+                userName: isAdminRecord ? '관리자' : (userProfile?.displayName || '이름 없음'),
+                chapters,
+                date: recordDate.toISOString(),
+                isAdminRecord: isAdminRecord
+            };
+            updatedRecords = [newRecord, ...updatedRecords];
+        }
+
+        // 3. Save merged data (Push)
+        setRecords(updatedRecords); // Optimistic UI Update
+        await saveData(updatedRecords, popHistory); 
+    } catch(e) {
+        console.error("Safe save failed", e);
+        alert("데이터 저장 중 오류가 발생했습니다. 다시 시도해주세요.");
+        setIsSyncing(false);
     }
-    
-    setRecords(updatedRecords);
-    await saveData(updatedRecords, popHistory);
   };
 
   const deleteRecord = async (id: string) => {
     if (!window.confirm('기록을 삭제하시겠습니까? (복구 불가)')) return;
-    const nextRecords = records.filter(r => r.id !== id);
-    setRecords(nextRecords);
-    await saveData(nextRecords, popHistory);
+    
+    setIsSyncing(true);
+    try {
+        // Fetch latest for safety
+        const uniqueUrl = `${googleSheetUrl}${googleSheetUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
+        const res = await fetch(uniqueUrl);
+        let latestRecords: ReadingRecord[] = records;
+        if (res.ok) {
+            const data = await res.json();
+            if (data && Array.isArray(data.records)) {
+                latestRecords = data.records;
+            }
+        }
+        
+        const nextRecords = latestRecords.filter(r => r.id !== id);
+        setRecords(nextRecords);
+        await saveData(nextRecords, popHistory);
+    } catch(e) {
+        alert("삭제 실패. 다시 시도해주세요.");
+        setIsSyncing(false);
+    }
   };
 
   // --- Department Management (Admin) ---
