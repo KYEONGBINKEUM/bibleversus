@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ReadingRecord, ChartData, PopulationLog, DepartmentId, Department } from '../types';
 import { BarChart3, TrendingUp, Users, Crown } from 'lucide-react';
+import { RACE_START_DATE, RACE_END_DATE } from '../constants';
 import { 
   BarChart, 
   Bar, 
@@ -25,6 +26,18 @@ type Period = 'daily' | 'weekly' | 'monthly';
 type ChartType = 'bar' | 'line';
 type ViewMode = 'total' | 'average';
 
+// Helper: ISO 문자열을 KST 날짜 문자열(YYYY-MM-DD)로 변환
+const getKSTDateFromISO = (iso: string) => {
+  try {
+    const date = new Date(iso);
+    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+    const kstObj = new Date(utc + (9 * 60 * 60 * 1000));
+    return kstObj.toISOString().split('T')[0];
+  } catch (e) {
+    return iso.split('T')[0]; // Fallback
+  }
+};
+
 const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin, departments }) => {
   const [period, setPeriod] = useState<Period>('daily');
   const [chartType, setChartType] = useState<ChartType>('bar');
@@ -46,6 +59,14 @@ const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin, d
     return applicableLog.populations[deptId] || 1;
   };
 
+  // [중요] 모든 통계는 지정된 레이스 기간 내의 기록만 사용합니다.
+  const filteredRecords = useMemo(() => {
+    return records.filter(r => {
+      const kstDate = getKSTDateFromISO(r.date);
+      return kstDate >= RACE_START_DATE && kstDate <= RACE_END_DATE;
+    });
+  }, [records]);
+
   const chartData = useMemo(() => {
     // 점수 계산 로직: 
     // 1. 일반 기록(isAdminRecord: false) -> 사용자별/날짜별 합산 후 4장 제한 캡핑
@@ -56,7 +77,7 @@ const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin, d
     
     // 부서별로 그룹화
     departments.forEach(dept => {
-        const deptRecords = records.filter(r => r.departmentId === dept.id);
+        const deptRecords = filteredRecords.filter(r => r.departmentId === dept.id);
         const normalGroup: Record<string, { date: string, chapters: number, timestamp: number }> = {};
         
         deptRecords.forEach(r => {
@@ -127,7 +148,7 @@ const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin, d
     // 최신 데이터 조각 가져오기 (이미 오름차순 정렬되었으므로 끝에서 자름)
     const limit = period === 'daily' ? 7 : period === 'weekly' ? 4 : 6;
     return sorted.slice(-limit);
-  }, [records, period, viewMode, popHistory, departments]);
+  }, [filteredRecords, period, viewMode, popHistory, departments]);
 
   // 개인별 랭킹 데이터 (관리자용) - 전체 인원 노출
   const individualRankings = useMemo(() => {
@@ -135,16 +156,17 @@ const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin, d
     
     const userStats: Record<string, { name: string, deptId: DepartmentId, total: number }> = {};
     
-    records.forEach(r => {
+    filteredRecords.forEach(r => {
       if (!userStats[r.userId]) {
         userStats[r.userId] = { name: r.userName || '익명', deptId: r.departmentId, total: 0 };
       }
+      // 최신 이름으로 업데이트
       userStats[r.userId].name = r.userName || '익명';
       userStats[r.userId].total += r.chapters; 
     });
 
     return Object.values(userStats).sort((a, b) => b.total - a.total);
-  }, [records, isAdmin]);
+  }, [filteredRecords, isAdmin]);
 
   const renderChart = () => {
     const formatValue = (val: number) => viewMode === 'average' ? parseFloat(val.toFixed(2)) : val;
@@ -233,7 +255,7 @@ const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin, d
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-slate-300 gap-2">
             <BarChart3 className="w-12 h-12" />
-            <p className="text-sm">데이터를 먼저 입력해주세요</p>
+            <p className="text-sm">해당 기간({RACE_START_DATE} ~)에 입력된 데이터가 없습니다</p>
           </div>
         )}
       </div>
@@ -242,7 +264,7 @@ const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin, d
         <div className="border-t border-slate-100 pt-6 animate-in slide-in-from-bottom-5">
            <div className="flex items-center gap-2 mb-4">
              <div className="bg-amber-100 p-1.5 rounded-lg text-amber-600"><Crown className="w-4 h-4" /></div>
-             <h3 className="text-sm font-black text-slate-700">개인별 다독 순위 (전체 - 입력 장수 모두 합산)</h3>
+             <h3 className="text-sm font-black text-slate-700">개인별 다독 순위 (기간 내 총합)</h3>
            </div>
            
            <div className="bg-slate-50 rounded-xl overflow-hidden border border-slate-100 max-h-[500px] overflow-y-auto">
@@ -273,11 +295,14 @@ const Statistics: React.FC<StatisticsProps> = ({ records, popHistory, isAdmin, d
                    );
                  })}
                  {individualRankings.length === 0 && (
-                   <tr><td colSpan={4} className="py-8 text-center text-slate-400">데이터가 없습니다</td></tr>
+                   <tr><td colSpan={4} className="py-8 text-center text-slate-400">기간 내 데이터가 없습니다</td></tr>
                  )}
                </tbody>
              </table>
            </div>
+           <p className="text-[10px] text-slate-400 text-right mt-2">
+              * {RACE_START_DATE} ~ {RACE_END_DATE} 기간의 기록만 반영됩니다.
+           </p>
         </div>
       )}
     </div>

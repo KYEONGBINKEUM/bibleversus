@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { DepartmentId, Department, ReadingRecord } from '../types';
-import { CheckCircle2, Calendar, Info, ShieldCheck, ChevronDown } from 'lucide-react';
+import { CheckCircle2, Calendar, Info, ShieldCheck, ChevronDown, Trash2 } from 'lucide-react';
 
 interface InputSectionProps {
   isLoggedIn: boolean;
@@ -115,18 +115,18 @@ const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onL
   };
 
   const handleSubmit = () => {
+    // 0을 허용하기 위해 input이 빈 문자열인 경우만 체크
+    if (input === '') return;
     const amount = parseInt(input);
-    if (isNaN(amount) || amount <= 0) return;
+    
+    // 0장도 허용 (삭제 의미), 음수만 차단
+    if (isNaN(amount) || amount < 0) return;
     
     // 관리자 모드에서는 targetDeptId와 isAdminRecord를 명시적으로 전달
     onAdd(amount, date, isAdminMode ? selectedDeptId : undefined, isAdminMode);
-    // 수정 모드이므로 입력값을 초기화하지 않고, 변경된 값이 그대로 보이도록 유지할 수도 있지만
-    // 사용성을 위해 보통 유지하거나 저장 알림을 줌. 여기선 날짜가 그대로라면 값이 유지되는게(useEffect 로직상) 자연스러움
-    // 하지만 onAdd 실행 후 records가 업데이트되어 useEffect가 다시 돌면서 값을 채울 것임.
-    // 일시적으로 비우는 것보다 UX상 놔두는게 나을 수도 있으나, 저장됨을 인지시키기 위해 깜빡임이나 알림이 있으면 좋음.
-    // 일단 기존 로직대로 유지하되, useEffect가 다시 값을 채워줄 것이므로 setInput('')을 제거해도 되지만
-    // 리액트 상태 업데이트 타이밍 고려하여 안전하게 둠 (records 변경 -> useEffect -> setInput)
   };
+
+  const isZeroInput = input === '0' || parseInt(input) === 0;
 
   // 3. 정상 입력 폼 UI
   return (
@@ -186,10 +186,13 @@ const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onL
                             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-slate-400 font-bold">장</span>
                         </div>
                         <p className="text-[10px] text-slate-400 px-1 flex items-center gap-1 font-bold">
-                            <Info className="w-2.5 h-2.5" /> 
-                            {isAdminMode 
-                                ? "관리자 기록은 장수 제한 없이 부서 점수에 전량 반영됩니다." 
-                                : "일반 기록은 부서 점수에 1인당 하루 최대 4장까지만 합산됩니다."}
+                            <Info className="w-2.5 h-2.5 flex-shrink-0" /> 
+                            <span>
+                                {isAdminMode 
+                                    ? "관리자 기록은 장수 제한 없이 부서 점수에 전량 반영됩니다." 
+                                    : "일반 기록은 부서 점수에 1인당 하루 최대 4장까지만 합산됩니다."}
+                                <span className="text-red-400 block sm:inline sm:ml-1">(0장 입력 시 기록 삭제)</span>
+                            </span>
                         </p>
                     </div>
 
@@ -216,10 +219,20 @@ const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onL
                 {/* Submit Button */}
                 <button
                     onClick={handleSubmit}
-                    disabled={!input || (isAdminMode && !selectedDeptId)}
-                    className={`w-full flex items-center justify-center gap-2 py-4 px-4 rounded-xl text-white text-base font-bold shadow-lg transition-all active:scale-95 mt-2 ${isAdminMode ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'} disabled:bg-slate-300 disabled:shadow-none disabled:cursor-not-allowed`}
+                    disabled={input === '' || (isAdminMode && !selectedDeptId)}
+                    className={`w-full flex items-center justify-center gap-2 py-4 px-4 rounded-xl text-white text-base font-bold shadow-lg transition-all active:scale-95 mt-2 ${
+                        isZeroInput 
+                          ? 'bg-red-500 hover:bg-red-600 shadow-red-200' 
+                          : (isAdminMode ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200')
+                    } disabled:bg-slate-300 disabled:shadow-none disabled:cursor-not-allowed`}
                 >
-                    {isAdminMode ? '관리자 점수 부여' : '기록 저장하기'} <CheckCircle2 className="w-5 h-5" />
+                    {isZeroInput ? (
+                        <>기록 삭제하기 <Trash2 className="w-5 h-5" /></>
+                    ) : (
+                        <>
+                            {isAdminMode ? '관리자 점수 부여' : '기록 저장하기'} <CheckCircle2 className="w-5 h-5" />
+                        </>
+                    )}
                 </button>
             </div>
         </div>

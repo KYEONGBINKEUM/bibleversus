@@ -390,29 +390,44 @@ const App: React.FC = () => {
             }
         });
 
-        if (existingIndex >= 0) {
-            // Modify existing
-            updatedRecords[existingIndex] = {
-                ...updatedRecords[existingIndex],
-                chapters: chapters,
-                departmentId: targetDeptId || updatedRecords[existingIndex].departmentId
-            };
+        // [Deletion Logic] 0장 입력 시 기록 삭제 처리
+        if (chapters === 0) {
+            if (existingIndex >= 0) {
+                // Remove existing record
+                updatedRecords.splice(existingIndex, 1);
+            } else {
+                // Nothing to delete, and we don't save 0 chapters.
+                // Just sync state to latest and return to save network bandwidth.
+                setRecords(latestRecords);
+                setIsSyncing(false);
+                return;
+            }
         } else {
-            // Append new
-            const [y, m, d] = targetDateStr.split('-').map(Number);
-            const now = new Date();
-            const recordDate = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds());
-            
-            const newRecord: ReadingRecord = {
-                id: crypto.randomUUID(),
-                departmentId: targetDeptId || userProfile!.departmentId!,
-                userId: targetUserId,
-                userName: isAdminRecord ? '관리자' : (userProfile?.displayName || '이름 없음'),
-                chapters,
-                date: recordDate.toISOString(),
-                isAdminRecord: isAdminRecord
-            };
-            updatedRecords = [newRecord, ...updatedRecords];
+            // [Update/Add Logic]
+            if (existingIndex >= 0) {
+                // Modify existing
+                updatedRecords[existingIndex] = {
+                    ...updatedRecords[existingIndex],
+                    chapters: chapters,
+                    departmentId: targetDeptId || updatedRecords[existingIndex].departmentId
+                };
+            } else {
+                // Append new
+                const [y, m, d] = targetDateStr.split('-').map(Number);
+                const now = new Date();
+                const recordDate = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds());
+                
+                const newRecord: ReadingRecord = {
+                    id: crypto.randomUUID(),
+                    departmentId: targetDeptId || userProfile!.departmentId!,
+                    userId: targetUserId,
+                    userName: isAdminRecord ? '관리자' : (userProfile?.displayName || '이름 없음'),
+                    chapters,
+                    date: recordDate.toISOString(),
+                    isAdminRecord: isAdminRecord
+                };
+                updatedRecords = [newRecord, ...updatedRecords];
+            }
         }
 
         // 3. Save merged data (Push)

@@ -1,12 +1,25 @@
 import React from 'react';
 import { DepartmentId, ReadingRecord, PopulationLog, Department } from '../types';
 import { Trophy, Target, Crown, Users } from 'lucide-react';
+import { RACE_START_DATE, RACE_END_DATE } from '../constants';
 
 interface RaceTrackProps {
   records: ReadingRecord[];
   popHistory: PopulationLog[];
   departments: Department[];
 }
+
+// Helper: ISO 문자열을 KST 날짜 문자열(YYYY-MM-DD)로 변환
+const getKSTDateFromISO = (iso: string) => {
+  try {
+    const date = new Date(iso);
+    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+    const kstObj = new Date(utc + (9 * 60 * 60 * 1000));
+    return kstObj.toISOString().split('T')[0];
+  } catch (e) {
+    return iso.split('T')[0]; // Fallback
+  }
+};
 
 const RaceTrack: React.FC<RaceTrackProps> = ({ records, popHistory, departments }) => {
   
@@ -27,7 +40,13 @@ const RaceTrack: React.FC<RaceTrackProps> = ({ records, popHistory, departments 
   };
 
   const scores = departments.reduce((acc, dept) => {
-    const deptRecords = records.filter(r => r.departmentId === dept.id);
+    // 1. 해당 부서의 기록만 필터링
+    // 2. [날짜 제한 적용] 설정된 기간 내의 기록만 점수에 반영
+    const deptRecords = records.filter(r => {
+      if (r.departmentId !== dept.id) return false;
+      const kstDate = getKSTDateFromISO(r.date);
+      return kstDate >= RACE_START_DATE && kstDate <= RACE_END_DATE;
+    });
     
     // 일반 기록 그룹화 (user_date_key -> sum)
     const normalUserDateSum: Record<string, { date: string, chapters: number }> = {};
@@ -137,6 +156,9 @@ const RaceTrack: React.FC<RaceTrackProps> = ({ records, popHistory, departments 
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-sm font-bold text-slate-600">현재 선두: <span className="text-indigo-600">{rankings.length > 0 ? rankings[0].name : '-'}</span></span>
           </div>
+          <p className="text-[9px] font-medium text-slate-400">
+            반영 기간: {RACE_START_DATE} ~ {RACE_END_DATE}
+          </p>
         </div>
         <div className="flex flex-col items-end gap-1">
           <div className="flex -space-x-2">
