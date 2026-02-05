@@ -7,8 +7,27 @@ interface CalendarViewProps {
   userId: string;
 }
 
+// Helper: 현재 시간을 KST Date 객체로 변환
+const getNowKST = () => {
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  return new Date(utc + (9 * 60 * 60 * 1000));
+};
+
+// Helper: ISO 문자열을 KST Date 객체로 변환
+const getKSTDateFromISO = (iso: string) => {
+  try {
+    const date = new Date(iso);
+    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+    return new Date(utc + (9 * 60 * 60 * 1000));
+  } catch (e) {
+    return new Date(iso);
+  }
+};
+
 const CalendarView: React.FC<CalendarViewProps> = ({ records, userId }) => {
-  const [currentDate, setCurrentDate] = useState(new Date());
+  // 초기값을 로컬 시간이 아닌 KST 기준으로 설정
+  const [currentDate, setCurrentDate] = useState(getNowKST());
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -27,10 +46,13 @@ const CalendarView: React.FC<CalendarViewProps> = ({ records, userId }) => {
   // Filter records for this user
   const userRecords = useMemo(() => records.filter(r => r.userId === userId), [records, userId]);
 
-  // Calculate Yearly Total (Modified from All Time)
+  // Calculate Yearly Total
   const totalYearly = useMemo(() => 
     userRecords
-      .filter(r => new Date(r.date).getFullYear() === year)
+      .filter(r => {
+        const d = getKSTDateFromISO(r.date);
+        return d.getFullYear() === year;
+      })
       .reduce((sum, r) => sum + r.chapters, 0), 
     [userRecords, year]
   );
@@ -41,8 +63,9 @@ const CalendarView: React.FC<CalendarViewProps> = ({ records, userId }) => {
     let total = 0;
     
     userRecords.forEach(r => {
-      const d = new Date(r.date);
-      // Compare year and month using local time
+      // 기록의 날짜도 반드시 KST로 변환하여 계산해야 함
+      const d = getKSTDateFromISO(r.date);
+      
       if (d.getFullYear() === year && d.getMonth() === month) {
         const day = d.getDate();
         const chapters = r.chapters;
@@ -64,8 +87,10 @@ const CalendarView: React.FC<CalendarViewProps> = ({ records, userId }) => {
     // Days
     for (let day = 1; day <= daysInMonth; day++) {
       const count = monthlyData[day] || 0;
-      const today = new Date();
-      const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === day;
+      
+      // '오늘' 여부 판별 시에도 KST 기준 사용
+      const todayKST = getNowKST();
+      const isToday = todayKST.getFullYear() === year && todayKST.getMonth() === month && todayKST.getDate() === day;
       
       days.push(
         <div key={day} className={`h-16 sm:h-20 border-t border-l border-slate-100 relative p-1 transition-colors hover:bg-slate-50 ${isToday ? 'bg-indigo-50/30' : ''}`}>
@@ -119,7 +144,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ records, userId }) => {
                     <button onClick={handlePrevMonth} className="p-1 hover:bg-white rounded-md transition-all text-slate-500 hover:text-slate-700 shadow-sm hover:shadow">
                         <ChevronLeft className="w-4 h-4" />
                     </button>
-                    <button onClick={() => setCurrentDate(new Date())} className="px-2 py-1 text-[10px] font-bold text-slate-500 hover:bg-white rounded-md hover:text-indigo-600 transition-all">
+                    <button onClick={() => setCurrentDate(getNowKST())} className="px-2 py-1 text-[10px] font-bold text-slate-500 hover:bg-white rounded-md hover:text-indigo-600 transition-all">
                         오늘
                     </button>
                     <button onClick={handleNextMonth} className="p-1 hover:bg-white rounded-md transition-all text-slate-500 hover:text-slate-700 shadow-sm hover:shadow">
