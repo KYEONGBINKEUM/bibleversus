@@ -25,16 +25,10 @@ interface AppData {
   departments?: Department[]; // Dynamic departments
 }
 
-// Helper: ISO 문자열을 KST 날짜 문자열(YYYY-MM-DD)로 변환
+// Robust Helper: ISO 문자열을 KST 날짜 문자열(YYYY-MM-DD)로 변환
+// Uses 'Asia/Seoul' timezone explicitly to handle international users correctly
 const getKSTDateFromISO = (iso: string) => {
-  try {
-    const date = new Date(iso);
-    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
-    const kstObj = new Date(utc + (9 * 60 * 60 * 1000));
-    return kstObj.toISOString().split('T')[0];
-  } catch (e) {
-    return iso.split('T')[0]; // Fallback
-  }
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
 };
 
 const App: React.FC = () => {
@@ -357,7 +351,7 @@ const App: React.FC = () => {
     }
 
     const targetUserId = isAdminRecord ? 'admin' : (user?.uid || 'unknown');
-    const targetDateStr = customDateStr || new Date().toISOString().split('T')[0];
+    const targetDateStr = customDateStr || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
     
     setIsSyncing(true); // Lock to prevent double submit
 
@@ -414,8 +408,10 @@ const App: React.FC = () => {
             } else {
                 // Append new
                 const [y, m, d] = targetDateStr.split('-').map(Number);
-                const now = new Date();
-                const recordDate = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds());
+                
+                // Create a date that corresponds to 12:00 KST on that day (03:00 UTC)
+                // This ensures that when we convert back to KST day, it is robustly the same day.
+                const utcDate = new Date(Date.UTC(y, m - 1, d, 3, 0, 0));
                 
                 const newRecord: ReadingRecord = {
                     id: crypto.randomUUID(),
@@ -423,7 +419,7 @@ const App: React.FC = () => {
                     userId: targetUserId,
                     userName: isAdminRecord ? '관리자' : (userProfile?.displayName || '이름 없음'),
                     chapters,
-                    date: recordDate.toISOString(),
+                    date: utcDate.toISOString(),
                     isAdminRecord: isAdminRecord
                 };
                 updatedRecords = [newRecord, ...updatedRecords];

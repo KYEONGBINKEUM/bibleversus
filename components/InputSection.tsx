@@ -13,23 +13,14 @@ interface InputSectionProps {
   userId?: string;
 }
 
+// Robust KST Date String (YYYY-MM-DD) regardless of local system time
 const getKSTDateString = () => {
-  const now = new Date();
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  const kstObj = new Date(utc + (9 * 60 * 60 * 1000));
-  return kstObj.toISOString().split('T')[0];
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
 };
 
-// Helper to match the App.tsx logic for consistency
+// Robust helper matching App.tsx
 const getKSTDateFromISO = (iso: string) => {
-  try {
-    const date = new Date(iso);
-    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
-    const kstObj = new Date(utc + (9 * 60 * 60 * 1000));
-    return kstObj.toISOString().split('T')[0];
-  } catch (e) {
-    return iso.split('T')[0];
-  }
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
 };
 
 const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onLogin, onAdd, isAdminMode, departments, records, userId }) => {
@@ -38,7 +29,7 @@ const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onL
   const [isDateEditable, setIsDateEditable] = useState(false);
   const [selectedDeptId, setSelectedDeptId] = useState<DepartmentId | undefined>(userDeptId || (departments.length > 0 ? departments[0].id : ''));
 
-  // 현재 날짜 체크 타이머
+  // 현재 날짜 체크 타이머 (KST 기준)
   useEffect(() => {
     const timer = setInterval(() => {
       const todayKST = getKSTDateString();
@@ -62,15 +53,13 @@ const InputSection: React.FC<InputSectionProps> = ({ isLoggedIn, userDeptId, onL
     
     // 해당 조건에 맞는 기록 찾기
     const foundRecord = records.find(r => {
-        // 날짜 비교 시 ISO 원본이 아닌 KST 변환값으로 비교 (App.tsx와 동일 로직)
+        // 날짜 비교 시 ISO 원본이 아닌 KST 변환값으로 비교
         const rDate = getKSTDateFromISO(r.date);
         const isDateMatch = rDate === date;
 
         if (isAdminMode) {
-            // 관리자 모드: 날짜 + 관리자 기록 여부 + 부서 일치 확인
             return isDateMatch && r.isAdminRecord && r.departmentId === selectedDeptId;
         } else {
-            // 일반 유저: 날짜 + 유저 ID 일치 확인
             return isDateMatch && r.userId === targetUserId;
         }
     });

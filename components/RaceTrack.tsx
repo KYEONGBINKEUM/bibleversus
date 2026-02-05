@@ -11,14 +11,7 @@ interface RaceTrackProps {
 
 // Helper: ISO 문자열을 KST 날짜 문자열(YYYY-MM-DD)로 변환
 const getKSTDateFromISO = (iso: string) => {
-  try {
-    const date = new Date(iso);
-    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
-    const kstObj = new Date(utc + (9 * 60 * 60 * 1000));
-    return kstObj.toISOString().split('T')[0];
-  } catch (e) {
-    return iso.split('T')[0]; // Fallback
-  }
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
 };
 
 const RaceTrack: React.FC<RaceTrackProps> = ({ records, popHistory, departments }) => {

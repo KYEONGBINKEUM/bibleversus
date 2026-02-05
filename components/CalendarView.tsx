@@ -7,26 +7,28 @@ interface CalendarViewProps {
   userId: string;
 }
 
-// Helper: 현재 시간을 KST Date 객체로 변환
+// Helper: 현재 한국 시간을 기준으로 Date 객체 반환
+// 로컬 타임존의 영향을 받지 않고 KST의 년, 월, 일을 가리키는 Date 객체를 생성
 const getNowKST = () => {
-  const now = new Date();
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  return new Date(utc + (9 * 60 * 60 * 1000));
+  // 'en-CA' locale results in YYYY-MM-DD
+  const kstString = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
+  const [y, m, d] = kstString.split('-').map(Number);
+  return new Date(y, m - 1, d);
 };
 
 // Helper: ISO 문자열을 KST Date 객체로 변환
 const getKSTDateFromISO = (iso: string) => {
   try {
-    const date = new Date(iso);
-    const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
-    return new Date(utc + (9 * 60 * 60 * 1000));
+    const kstString = new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
+    const [y, m, d] = kstString.split('-').map(Number);
+    return new Date(y, m - 1, d);
   } catch (e) {
     return new Date(iso);
   }
 };
 
 const CalendarView: React.FC<CalendarViewProps> = ({ records, userId }) => {
-  // 초기값을 로컬 시간이 아닌 KST 기준으로 설정
+  // 초기값을 KST 기준으로 설정
   const [currentDate, setCurrentDate] = useState(getNowKST());
 
   const year = currentDate.getFullYear();
