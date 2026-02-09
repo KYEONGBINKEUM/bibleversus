@@ -51,16 +51,20 @@ const HistoryTable: React.FC<HistoryTableProps> = ({ records, onDelete, isAdmin,
           <tbody className="divide-y divide-slate-50">
             {currentRecords.map((record) => {
               const dept = departments.find(d => d.id === record.departmentId);
-              const date = new Date(record.date);
-              const dateString = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+              
+              // KST 기준 날짜 파싱 (시간 제외)
+              // en-CA locale returns YYYY-MM-DD format
+              const kstDateString = new Date(record.date).toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
+              const [_, m, d] = kstDateString.split('-').map(Number);
+              const dateDisplay = `${m}월 ${d}일`;
               
               return (
                 <tr key={record.id} className="hover:bg-slate-50 transition-colors">
                   <td className="py-3 px-2 pl-4">
                       <div className="flex flex-col">
-                          <span className="text-slate-400 text-[10px] font-medium">{dateString}</span>
+                          <span className="text-slate-500 text-xs font-bold">{dateDisplay}</span>
                           {isAdmin && (
-                            <span className="text-slate-700 font-bold text-xs">{record.userName}</span>
+                            <span className="text-slate-400 text-[10px] mt-0.5">{record.userName}</span>
                           )}
                       </div>
                   </td>
