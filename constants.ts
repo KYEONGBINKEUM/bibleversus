@@ -21,7 +21,7 @@ export const SHARED_CLOUD_ID: string = '13476903-8025-11ef-8b1d-910406692985';
 // [고정 구글 시트 URL] 
 // 앱이 시작될 때 이 URL을 사용하여 데이터를 동기화합니다.
 // -------------------------------------------------------------------------
-export const DEFAULT_GOOGLE_SHEET_URL = 'https://script.google.com/macros/s/AKfycbyQhXO9_IFWPrt0Dmr2g-xP8qG3sHCNjrRuLjWi_T-BjpXPtOe8MkUtbHZNqH7dcwjEGA/exec';
+export const DEFAULT_GOOGLE_SHEET_URL = 'https://script.google.com/macros/s/AKfycbxsDwj687IHP-g9tu_ksTIsLDOz_OKvCHOVWsHBG7TqieYhJUpu4IJPY69NZCfwyZY4og/exec';
 
 // -------------------------------------------------------------------------
 // [대회 기간 설정]
