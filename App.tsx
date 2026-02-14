@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { ReadingRecord, DepartmentId, DepartmentPopulations, PopulationLog, UserProfile, Department } from './types';
 import { INITIAL_DEPARTMENTS, DEFAULT_GOOGLE_SHEET_URL, LOCAL_STORAGE_KEY } from './constants';
@@ -12,7 +11,7 @@ import {
   Trophy, BarChart3, BookOpen, Lock, Unlock, 
   Loader2, Check, LogIn, UserCircle, LogOut,
   Save, ChevronRight, Edit2, Calendar,
-  Trash2, CloudCheck
+  Trash2
 } from 'lucide-react';
 
 // Firebase Imports (Auth Only)

@@ -1,6 +1,4 @@
-
-import { initializeApp, getApps, getApp } from "firebase/app";
-// Fix: Re-defined imports to ensure modular SDK functions are properly exported and matched with client expectations
+import { initializeApp, getApps } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
 // Firebase 설정값
@@ -13,10 +11,10 @@ const firebaseConfig = {
   appId: "1:129810318732:web:8db40d9bc4ffc0bb5d02a9"
 };
 
-// 앱 초기화
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+// 앱 초기화 - 중복 초기화 방지
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
 
-// 인증 서비스 초기화 및 설정
+// Auth 인스턴스 생성
 const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 const isConfigured = true;

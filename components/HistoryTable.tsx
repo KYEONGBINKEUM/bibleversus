@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ReadingRecord, Department } from '../types';
-import { Trash2, ChevronLeft, ChevronRight, CloudCheck, CloudOff, Loader2 } from 'lucide-react';
+import { Trash2, ChevronLeft, ChevronRight, CheckCircle2, Loader2 } from 'lucide-react';
 
 interface HistoryTableProps {
   records: ReadingRecord[];
@@ -68,7 +68,7 @@ const HistoryTable: React.FC<HistoryTableProps> = ({ records, onDelete, isAdmin,
                                 isPending ? (
                                     <span title="서버 동기화 중..." className="text-amber-400"><Loader2 className="w-3 h-3 animate-spin" /></span>
                                 ) : (
-                                    <span title="서버 인증 완료" className="text-emerald-500"><CloudCheck className="w-3 h-3" /></span>
+                                    <span title="서버 인증 완료" className="text-emerald-500"><CheckCircle2 className="w-3 h-3" /></span>
                                 )
                             )}
                           </div>

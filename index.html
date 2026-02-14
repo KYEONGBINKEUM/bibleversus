@@ -41,10 +41,10 @@
     "react-dom": "https://esm.sh/react-dom@19.0.0",
     "recharts": "https://esm.sh/recharts@2.12.7",
     "lucide-react": "https://esm.sh/lucide-react@0.344.0",
-    "firebase/app": "https://esm.sh/firebase@10.8.0/app",
-    "firebase/auth": "https://esm.sh/firebase@10.8.0/auth",
+    "firebase/app": "https://esm.sh/firebase@12.9.0/app",
+    "firebase/auth": "https://esm.sh/firebase@12.9.0/auth",
     "axios": "https://esm.sh/axios@1.6.7",
-    "firebase/": "https://esm.sh/firebase@^12.9.0/"
+    "firebase/": "https://esm.sh/firebase@12.9.0/"
   }
 }
 </script>
@@ -56,7 +56,7 @@
       // PWA를 위해 필수적인 최소 서비스 워커 등록
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('data:text/javascript;base64,' + 
+          navigator.worker = navigator.serviceWorker.register('data:text/javascript;base64,' + 
             btoa(`
               self.addEventListener('install', (e) => {
                 e.waitUntil(self.skipWaiting());
