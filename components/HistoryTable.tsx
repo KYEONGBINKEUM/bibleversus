@@ -1,18 +1,17 @@
 import React, { useState } from 'react';
 import { ReadingRecord, Department } from '../types';
-import { Trash2, ChevronLeft, ChevronRight, CheckCircle2, Loader2 } from 'lucide-react';
+import { Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface HistoryTableProps {
   records: ReadingRecord[];
   onDelete: (id: string) => void;
   isAdmin: boolean;
   departments: Department[];
-  pendingIds: Set<string>;
 }
 
 const ITEMS_PER_PAGE = 20;
 
-const HistoryTable: React.FC<HistoryTableProps> = ({ records, onDelete, isAdmin, departments, pendingIds }) => {
+const HistoryTable: React.FC<HistoryTableProps> = ({ records, onDelete, isAdmin, departments }) => {
   const [currentPage, setCurrentPage] = useState(1);
 
   if (records.length === 0) {
@@ -42,7 +41,7 @@ const HistoryTable: React.FC<HistoryTableProps> = ({ records, onDelete, isAdmin,
           <thead>
             <tr className="border-b border-slate-100">
               <th className="py-4 font-semibold text-slate-500 px-2 pl-4">
-                {isAdmin ? '날짜/이름' : '날짜/상태'}
+                {isAdmin ? '날짜/이름' : '날짜'}
               </th>
               <th className="py-4 font-semibold text-slate-500 px-2">부서</th>
               <th className="py-4 font-semibold text-slate-500 px-2 text-right pr-4">장수</th>
@@ -52,26 +51,18 @@ const HistoryTable: React.FC<HistoryTableProps> = ({ records, onDelete, isAdmin,
           <tbody className="divide-y divide-slate-50">
             {currentRecords.map((record) => {
               const dept = departments.find(d => d.id === record.departmentId);
-              const isPending = pendingIds.has(record.id);
               
+              // KST 기준 날짜 파싱 (시간 제외)
+              // en-CA locale returns YYYY-MM-DD format
               const kstDateString = new Date(record.date).toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
               const [_, m, d] = kstDateString.split('-').map(Number);
               const dateDisplay = `${m}월 ${d}일`;
               
               return (
-                <tr key={record.id} className="hover:bg-slate-50 transition-colors group">
+                <tr key={record.id} className="hover:bg-slate-50 transition-colors">
                   <td className="py-3 px-2 pl-4">
                       <div className="flex flex-col">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-slate-500 text-xs font-bold">{dateDisplay}</span>
-                            {!isAdmin && (
-                                isPending ? (
-                                    <span title="서버 동기화 중..." className="text-amber-400"><Loader2 className="w-3 h-3 animate-spin" /></span>
-                                ) : (
-                                    <span title="서버 인증 완료" className="text-emerald-500"><CheckCircle2 className="w-3 h-3" /></span>
-                                )
-                            )}
-                          </div>
+                          <span className="text-slate-500 text-xs font-bold">{dateDisplay}</span>
                           {isAdmin && (
                             <span className="text-slate-400 text-[10px] mt-0.5">{record.userName}</span>
                           )}
@@ -84,7 +75,7 @@ const HistoryTable: React.FC<HistoryTableProps> = ({ records, onDelete, isAdmin,
                     </div>
                   </td>
                   <td className="py-3 px-2 text-right pr-4">
-                       <span className={`font-black text-sm ${isPending ? 'text-slate-400' : 'text-indigo-600'}`}>{record.chapters}</span>
+                       <span className="font-black text-indigo-600 text-sm">{record.chapters}</span>
                        <span className="text-xs text-slate-400 ml-0.5">장</span>
                   </td>
                   {isAdmin && (
@@ -105,6 +96,7 @@ const HistoryTable: React.FC<HistoryTableProps> = ({ records, onDelete, isAdmin,
         </table>
       </div>
 
+      {/* Pagination Controls */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-4 py-4 mt-2 border-t border-slate-50">
           <button 

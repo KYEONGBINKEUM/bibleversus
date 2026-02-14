@@ -1,3 +1,4 @@
+
 import { Department } from './types';
 
 export const INITIAL_DEPARTMENTS: Department[] = [
