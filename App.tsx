@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ReadingRecord, DepartmentId, DepartmentPopulations, PopulationLog, UserProfile, Department } from './types';
-import { INITIAL_DEPARTMENTS, DEFAULT_GOOGLE_SHEET_URL, LOCAL_STORAGE_KEY } from './constants';
+import { INITIAL_DEPARTMENTS, DEFAULT_GOOGLE_SHEET_URL, SYNC_API_BASE, SHARED_CLOUD_ID, LOCAL_STORAGE_KEY } from './constants';
 import RaceTrack from './components/RaceTrack';
 import InputSection from './components/InputSection';
 import HistoryTable from './components/HistoryTable';
@@ -12,7 +11,7 @@ import {
   Trophy, BarChart3, BookOpen, Lock, Unlock, 
   Settings, Loader2, Share2, Check, LogIn, UserCircle, LogOut,
   Save, ChevronRight, FileSpreadsheet, AlertTriangle, Edit2, UserPen, Calendar,
-  Plus, Trash2, Palette
+  Database, Cloud, Download, Plus, Trash2, Palette
 } from 'lucide-react';
 
 // Firebase Imports (Auth Only)
@@ -27,6 +26,7 @@ interface AppData {
 }
 
 // Robust Helper: ISO 문자열을 KST 날짜 문자열(YYYY-MM-DD)로 변환
+// Uses 'Asia/Seoul' timezone explicitly to handle international users correctly
 const getKSTDateFromISO = (iso: string) => {
   return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
 };
@@ -51,6 +51,7 @@ const App: React.FC = () => {
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [isChangingDept, setIsChangingDept] = useState(false);
   
+  // 이름 입력 상태
   const [inputName, setInputName] = useState('');
 
   // --- Admin State ---
@@ -60,14 +61,16 @@ const App: React.FC = () => {
   const [tempPopulations, setTempPopulations] = useState<DepartmentPopulations>({});
   const [popApplyDate, setPopApplyDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
+  // Admin: New Department State
   const [newDeptName, setNewDeptName] = useState('');
   const [newDeptEmoji, setNewDeptEmoji] = useState('🐢');
   const [newDeptColor, setNewDeptColor] = useState('#6366f1');
 
   const [googleSheetUrl, setGoogleSheetUrl] = useState(DEFAULT_GOOGLE_SHEET_URL);
   const isFetchingRef = useRef(false);
-  const lastSaveTimeRef = useRef<number>(0);
+  const lastSaveTimeRef = useRef<number>(0); // 저장 직후 동기화로 인한 롤백 방지용
 
+  // Initialize temp populations when departments change
   useEffect(() => {
     if (popHistory.length > 0) {
       const lastPop = popHistory[popHistory.length - 1].populations;
@@ -79,6 +82,9 @@ const App: React.FC = () => {
     }
   }, [departments, popHistory]);
 
+  // --------------------------------------------------------------------------
+  // 1. Auth Management
+  // --------------------------------------------------------------------------
   useEffect(() => {
     if (!isConfigured || !auth) {
       setAuthLoading(false);
@@ -134,7 +140,11 @@ const App: React.FC = () => {
     }
   };
 
+  // --------------------------------------------------------------------------
+  // 2. Data Sync
+  // --------------------------------------------------------------------------
   useEffect(() => {
+    // 1. Try Local Storage first (Cache)
     let loadedLocal = false;
     const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (saved) {
@@ -145,6 +155,7 @@ const App: React.FC = () => {
            if(parsed.records) setRecords(parsed.records);
            if(parsed.popHistory) setPopHistory(parsed.popHistory);
            if(parsed.users) setAllUsers(parsed.users);
+           // 로컬 데이터가 있으면 로딩 화면 즉시 해제
            setIsLoading(false); 
            loadedLocal = true;
         }
@@ -153,8 +164,10 @@ const App: React.FC = () => {
       }
     }
 
+    // 2. Fetch from network (Silent update if local data exists)
     loadFromGoogleSheet(googleSheetUrl, loadedLocal);
 
+    // 3. Periodic Sync
     const interval = setInterval(() => {
       if (!document.hidden) triggerSync(true);
     }, 5000);
@@ -171,6 +184,7 @@ const App: React.FC = () => {
   }, [googleSheetUrl]);
 
   const triggerSync = (silent: boolean) => {
+    // 저장 직후 10초간은 자동 동기화 무시 (서버 반영 지연으로 인한 롤백 방지)
     if (Date.now() - lastSaveTimeRef.current < 10000) return;
     if (isFetchingRef.current) return;
     loadFromGoogleSheet(googleSheetUrl, silent);
@@ -197,8 +211,10 @@ const App: React.FC = () => {
   };
 
   const updateLocalState = (data: AppData) => {
+    // 저장 직후 10초간은 외부 데이터 반영 차단 (이중 안전장치)
     if (Date.now() - lastSaveTimeRef.current < 10000) return;
 
+    // [Cache] Save latest data to LocalStorage
     try {
         localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
     } catch(e) {
@@ -236,8 +252,9 @@ const App: React.FC = () => {
 
   const saveData = async (newRecords: ReadingRecord[], newHistory: PopulationLog[], newUsers: UserProfile[] = allUsers, newDepartments: Department[] = departments) => {
     setIsSyncing(true);
-    lastSaveTimeRef.current = Date.now();
+    lastSaveTimeRef.current = Date.now(); // 저장 시작 시점 기록
 
+    // Optimistic Update (UI 즉시 반영)
     setRecords(newRecords);
     setPopHistory(newHistory);
     setAllUsers(newUsers);
@@ -250,6 +267,7 @@ const App: React.FC = () => {
       departments: newDepartments 
     };
 
+    // [Cache] Save optimistic state to LocalStorage
     try {
         localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(payload));
     } catch(e) {
@@ -263,21 +281,34 @@ const App: React.FC = () => {
         headers: { 'Content-Type': 'text/plain' }, 
         body: JSON.stringify(payload)
       });
+
+      fetch(`${SYNC_API_BASE}/${SHARED_CLOUD_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).catch(err => console.warn('Backup failed:', err));
       
+      // 저장 성공으로 간주하고 다시 타임스탬프 갱신
       lastSaveTimeRef.current = Date.now();
 
+      // 3초 후 강제 동기화 시도 (단, triggerSync 내부에서 10초 쿨타임 체크하므로 실질적으로는 스킵될 수 있음. 
+      // 이는 의도된 동작으로, 사용자가 계속 앱을 켜두면 10초 후 자연스럽게 동기화됨)
       setTimeout(() => {
         if (Date.now() - lastSaveTimeRef.current >= 10000) triggerSync(true);
       }, 3000);
 
     } catch (e) {
       alert("저장 실패! 인터넷 연결을 확인해주세요.");
+      // 실패 시 쿨타임 해제하여 다시 불러오도록 함
       lastSaveTimeRef.current = 0;
     } finally {
       setIsSyncing(false);
     }
   };
 
+  // --------------------------------------------------------------------------
+  // 3. Actions
+  // --------------------------------------------------------------------------
   const handleSelectDepartment = async (deptId: DepartmentId) => {
     if (!user) return;
     if (!inputName.trim()) {
@@ -309,6 +340,7 @@ const App: React.FC = () => {
       setIsChangingDept(true);
   };
 
+  // 기록 저장 (수정 및 추가) - Safe Logic Applied
   const saveDailyRecord = async (chapters: number, customDateStr?: string, targetDeptId?: DepartmentId, isAdminRecord: boolean = false) => {
     if (!isAdminRecord && (!user || !userProfile?.departmentId)) return;
     if (isAdminRecord && !targetDeptId) return;
@@ -321,9 +353,11 @@ const App: React.FC = () => {
     const targetUserId = isAdminRecord ? 'admin' : (user?.uid || 'unknown');
     const targetDateStr = customDateStr || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
     
-    setIsSyncing(true);
+    setIsSyncing(true); // Lock to prevent double submit
 
     try {
+        // [Safety Check] 1. Fetch latest data first (Fetch)
+        // 저장 직전 서버 데이터를 한 번 더 가져와서 충돌 방지
         const uniqueUrl = `${googleSheetUrl}${googleSheetUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
         const res = await fetch(uniqueUrl);
         let latestRecords: ReadingRecord[] = records;
@@ -335,6 +369,8 @@ const App: React.FC = () => {
             }
         }
 
+        // [Merge Logic] 2. Apply my changes to the LATEST data (Merge)
+        // 화면에 보이던 데이터가 아닌, 방금 가져온 최신 데이터 위에 내 기록을 덧씌움
         let updatedRecords = [...latestRecords];
         
         const existingIndex = updatedRecords.findIndex(r => {
@@ -348,23 +384,33 @@ const App: React.FC = () => {
             }
         });
 
+        // [Deletion Logic] 0장 입력 시 기록 삭제 처리
         if (chapters === 0) {
             if (existingIndex >= 0) {
+                // Remove existing record
                 updatedRecords.splice(existingIndex, 1);
             } else {
+                // Nothing to delete, and we don't save 0 chapters.
+                // Just sync state to latest and return to save network bandwidth.
                 setRecords(latestRecords);
                 setIsSyncing(false);
                 return;
             }
         } else {
+            // [Update/Add Logic]
             if (existingIndex >= 0) {
+                // Modify existing
                 updatedRecords[existingIndex] = {
                     ...updatedRecords[existingIndex],
                     chapters: chapters,
                     departmentId: targetDeptId || updatedRecords[existingIndex].departmentId
                 };
             } else {
+                // Append new
                 const [y, m, d] = targetDateStr.split('-').map(Number);
+                
+                // Create a date that corresponds to 12:00 KST on that day (03:00 UTC)
+                // This ensures that when we convert back to KST day, it is robustly the same day.
                 const utcDate = new Date(Date.UTC(y, m - 1, d, 3, 0, 0));
                 
                 const newRecord: ReadingRecord = {
@@ -380,7 +426,8 @@ const App: React.FC = () => {
             }
         }
 
-        setRecords(updatedRecords);
+        // 3. Save merged data (Push)
+        setRecords(updatedRecords); // Optimistic UI Update
         await saveData(updatedRecords, popHistory); 
     } catch(e) {
         console.error("Safe save failed", e);
@@ -394,6 +441,7 @@ const App: React.FC = () => {
     
     setIsSyncing(true);
     try {
+        // Fetch latest for safety
         const uniqueUrl = `${googleSheetUrl}${googleSheetUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
         const res = await fetch(uniqueUrl);
         let latestRecords: ReadingRecord[] = records;
@@ -413,6 +461,7 @@ const App: React.FC = () => {
     }
   };
 
+  // --- Department Management (Admin) ---
   const handleAddDepartment = async () => {
     if (!newDeptName.trim()) {
       alert('부서 이름을 입력해주세요.');
@@ -426,7 +475,10 @@ const App: React.FC = () => {
       color: newDeptColor
     };
     const nextDepts = [...departments, newDept];
+    
+    // Update temp populations for UI consistency
     setTempPopulations(prev => ({ ...prev, [newId]: 10 }));
+    
     setDepartments(nextDepts);
     setNewDeptName('');
     await saveData(records, popHistory, allUsers, nextDepts);
@@ -434,12 +486,17 @@ const App: React.FC = () => {
   };
 
   const handleDeleteDepartment = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+    e.stopPropagation(); // 버튼 클릭시 이벤트 전파 방지
     if (!window.confirm('정말 이 부서를 삭제하시겠습니까?\n해당 부서의 기록은 유지되지만, 레이스 및 선택 목록에서 사라집니다.')) return;
     
+    // 1. UI 즉시 반영 (낙관적 업데이트)
     const nextDepts = departments.filter(d => d.id !== id);
-    setDepartments(nextDepts);
+    setDepartments(nextDepts); // 즉시 상태 변경
+
+    // 2. 서버 저장
     await saveData(records, popHistory, allUsers, nextDepts);
+    
+    // 3. 완료 피드백
     alert('부서가 삭제되었습니다.');
   };
 
@@ -476,12 +533,41 @@ const App: React.FC = () => {
     alert('구글 스프레드시트 주소가 갱신되었습니다.');
   };
 
+  const handleLoadBackup = async () => {
+    if (!window.confirm('현재 데이터를 덮어쓰고 최신 백업본(JsonBlob)을 불러오시겠습니까?')) return;
+    
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${SYNC_API_BASE}/${SHARED_CLOUD_ID}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data) {
+           // 백업 복원 시에는 쿨타임 무시하고 즉시 반영
+           lastSaveTimeRef.current = 0; 
+           updateLocalState(data);
+           alert('백업 데이터가 복구되었습니다.');
+        } else {
+           alert('백업 데이터가 비어있습니다.');
+        }
+      } else {
+        throw new Error('Fetch failed');
+      }
+    } catch (e) {
+      alert('백업 불러오기 실패');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const copyLink = () => {
     navigator.clipboard.writeText(window.location.href);
     setCopyFeedback(true);
     setTimeout(() => setCopyFeedback(false), 2000);
   };
 
+  // --------------------------------------------------------------------------
+  // View: Setup Required
+  // --------------------------------------------------------------------------
   if (!isConfigured) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
@@ -494,6 +580,9 @@ const App: React.FC = () => {
     );
   }
 
+  // --------------------------------------------------------------------------
+  // View: Loading
+  // --------------------------------------------------------------------------
   if (authLoading || isLoading) {
     return (
       <div className="min-h-screen bg-[#F2F4F8] flex flex-col items-center justify-center p-4 text-center">
@@ -503,6 +592,9 @@ const App: React.FC = () => {
     );
   }
 
+  // --------------------------------------------------------------------------
+  // View: Department Selection
+  // --------------------------------------------------------------------------
   if (user && (!userProfile?.departmentId || isChangingDept)) {
     return (
       <div className="min-h-screen bg-[#F2F4F8] flex flex-col items-center justify-center p-6">
@@ -564,8 +656,13 @@ const App: React.FC = () => {
     );
   }
 
+  // --------------------------------------------------------------------------
+  // View: Main Dashboard
+  // --------------------------------------------------------------------------
   return (
     <div className="min-h-screen bg-[#F2F4F8] font-sans text-slate-900 pb-32 relative">
+      
+      {/* Header */}
       <header className="sticky top-0 z-40 w-full bg-white/80 backdrop-blur-md border-b border-slate-200/50">
         <div className="max-w-3xl mx-auto px-5 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5" onClick={() => window.scrollTo({top:0, behavior:'smooth'})}>
@@ -603,6 +700,8 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+        
+        {/* User Greeting Info (Modified: Removed Cumulative Count) */}
         {user && userProfile?.departmentId && (
             <section className="flex items-center justify-between px-2 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
             <div>
@@ -631,6 +730,7 @@ const App: React.FC = () => {
             </section>
         )}
 
+        {/* 1. Race Track */}
         <section className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden relative">
           <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
           <div className="p-6 pb-2 flex items-center gap-2.5">
@@ -644,6 +744,7 @@ const App: React.FC = () => {
           </div>
         </section>
 
+        {/* 2. Input Section */}
         <section className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
           <div className="p-6 border-b border-slate-50 flex items-center gap-3">
             <div className="bg-indigo-50 p-2 rounded-xl">
@@ -665,6 +766,7 @@ const App: React.FC = () => {
           </div>
         </section>
 
+        {/* Calendar Section */}
         {user && (
            <section className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="p-6 border-b border-slate-50 flex items-center gap-3">
@@ -679,6 +781,7 @@ const App: React.FC = () => {
            </section>
         )}
 
+        {/* 3. Stats & History */}
         <div className="grid grid-cols-1 gap-6">
           <section className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
             <div className="p-6 border-b border-slate-50 flex items-center gap-3">
@@ -694,6 +797,7 @@ const App: React.FC = () => {
             <div className="p-6 border-b border-slate-50 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="bg-emerald-50 p-2 rounded-xl">
+                  {/* eslint-disable-next-line */}
                   <Save className="text-emerald-600 w-5 h-5" /> 
                 </div>
                 <h2 className="text-lg font-black text-slate-800">최신 인증</h2>
@@ -704,6 +808,7 @@ const App: React.FC = () => {
           </section>
         </div>
 
+        {/* Share Link Button */}
         <div className="flex justify-center pt-4">
            <button 
             onClick={copyLink}
@@ -714,6 +819,7 @@ const App: React.FC = () => {
            </button>
         </div>
 
+        {/* Footer Admin Toggle */}
         <div className="flex justify-center pt-4 pb-10">
           <button 
             onClick={() => setShowAdminPanel(!showAdminPanel)}
@@ -724,6 +830,7 @@ const App: React.FC = () => {
           </button>
         </div>
 
+        {/* Admin Panel */}
         {showAdminPanel && (
           <section className="animate-in slide-in-from-bottom-5 duration-300 pb-20">
             <div className="bg-[#1e293b] rounded-[2rem] p-6 text-white shadow-2xl">
@@ -739,11 +846,13 @@ const App: React.FC = () => {
                     <button onClick={() => setIsAdminMode(false)} className="text-xs text-slate-400">로그아웃</button>
                   </div>
 
+                  {/* 1. Department Management (NEW) */}
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                         <h3 className="text-sm font-bold text-slate-300">부서 관리 (추가/삭제)</h3>
                     </div>
                     
+                    {/* List Existing */}
                     <div className="space-y-2">
                       {departments.map(dept => (
                         <div key={dept.id} className="flex items-center justify-between bg-slate-800 p-3 rounded-xl border border-slate-700">
@@ -763,6 +872,7 @@ const App: React.FC = () => {
                       ))}
                     </div>
 
+                    {/* Add New Form */}
                     <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 space-y-3">
                         <p className="text-xs text-slate-400 font-bold mb-2">새 부서 추가</p>
                         <div className="flex gap-2">
@@ -779,6 +889,7 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* 2. 인원 설정 */}
                   <div className="space-y-4 pt-4 border-t border-slate-700">
                     <div className="flex items-center justify-between">
                         <h3 className="text-sm font-bold text-slate-300">부서 인원 조정</h3>
@@ -804,6 +915,7 @@ const App: React.FC = () => {
                     <button onClick={handleApplyPopulations} className="w-full bg-slate-700 hover:bg-slate-600 rounded-xl p-3 font-bold text-sm text-slate-200">인원 변경사항 저장</button>
                   </div>
                   
+                  {/* 3. 구글 시트 & 백업 */}
                   <div className="space-y-4 pt-4 border-t border-slate-700">
                     <div className="flex items-center justify-between">
                        <h3 className="text-sm font-bold text-slate-300 flex items-center gap-2">
@@ -829,6 +941,14 @@ const App: React.FC = () => {
                                수정
                              </button>
                           </div>
+                        </div>
+                        <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
+                           <button 
+                             onClick={handleLoadBackup}
+                             className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2"
+                           >
+                             <Download className="w-3 h-3" /> 최신 백업본 불러오기 (JsonBlob)
+                           </button>
                         </div>
                     </div>
                   </div>
