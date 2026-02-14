@@ -53,24 +53,12 @@
 <body>
     <div id="root"></div>
     <script>
-      // PWA를 위해 필수적인 최소 서비스 워커 등록
+      // PWA를 위한 서비스 워커 등록
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('data:text/javascript;base64,' + 
-            btoa(`
-              self.addEventListener('install', (e) => {
-                e.waitUntil(self.skipWaiting());
-              });
-              self.addEventListener('activate', (e) => {
-                e.waitUntil(self.clients.claim());
-              });
-              self.addEventListener('fetch', (e) => {
-                // Network first strategy
-                e.respondWith(fetch(e.request));
-              });
-            `)
-          ).then(() => console.log('SW registered'))
-           .catch((err) => console.log('SW registration failed', err));
+          navigator.serviceWorker.register('/sw.js')
+            .then(() => console.log('Service Worker registered successfully'))
+            .catch((err) => console.log('Service Worker registration failed:', err));
         });
       }
     </script>
