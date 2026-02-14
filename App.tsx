@@ -227,11 +227,12 @@ const App: React.FC = () => {
       // mode: 'no-cors'는 응답을 읽을 수 없으나, 전송은 이루어짐
       await fetch(googleSheetUrl, {
         method: 'POST',
-        mode: 'no-cors', 
-        headers: { 'Content-Type': 'text/plain' }, 
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(payload)
       });
-      fetch(`${SYNC_API_BASE}/${SHARED_CLOUD_ID}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).catch(() => {});
+      // JsonBlob 백업 제거: CORS 정책 변경으로 인한 에러 방지
+      // fetch(`${SYNC_API_BASE}/${SHARED_CLOUD_ID}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).catch(() => {});
     } catch (e) {
       console.warn("Network sync delay");
     } finally {
