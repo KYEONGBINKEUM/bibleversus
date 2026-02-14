@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ReadingRecord, DepartmentId, DepartmentPopulations, PopulationLog, UserProfile, Department } from './types';
-import { INITIAL_DEPARTMENTS, DEFAULT_GOOGLE_SHEET_URL, SYNC_API_BASE, SHARED_CLOUD_ID, LOCAL_STORAGE_KEY } from './constants';
+import { INITIAL_DEPARTMENTS, DEFAULT_GOOGLE_SHEET_URL, LOCAL_STORAGE_KEY } from './constants';
 import RaceTrack from './components/RaceTrack';
 import InputSection from './components/InputSection';
 import HistoryTable from './components/HistoryTable';
@@ -8,10 +8,10 @@ import Statistics from './components/Statistics';
 import CalendarView from './components/CalendarView';
 import { InstallPrompt } from './components/InstallPrompt';
 import { 
-  Trophy, BarChart3, BookOpen, Lock, Unlock, 
+  Trophy, BarChart3, BookOpen, Lock, Unlock,
   Settings, Loader2, Share2, Check, LogIn, UserCircle, LogOut,
   Save, ChevronRight, FileSpreadsheet, AlertTriangle, Edit2, UserPen, Calendar,
-  Database, Cloud, Download, Plus, Trash2, Palette
+  Plus, Trash2, Palette
 } from 'lucide-react';
 
 // Firebase Imports (Auth Only)
@@ -277,17 +277,11 @@ const App: React.FC = () => {
     try {
       await fetch(googleSheetUrl, {
         method: 'POST',
-        mode: 'no-cors', 
-        headers: { 'Content-Type': 'text/plain' }, 
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(payload)
       });
 
-      fetch(`${SYNC_API_BASE}/${SHARED_CLOUD_ID}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }).catch(err => console.warn('Backup failed:', err));
-      
       // 저장 성공으로 간주하고 다시 타임스탬프 갱신
       lastSaveTimeRef.current = Date.now();
 
@@ -533,31 +527,6 @@ const App: React.FC = () => {
     alert('구글 스프레드시트 주소가 갱신되었습니다.');
   };
 
-  const handleLoadBackup = async () => {
-    if (!window.confirm('현재 데이터를 덮어쓰고 최신 백업본(JsonBlob)을 불러오시겠습니까?')) return;
-    
-    setIsLoading(true);
-    try {
-      const res = await fetch(`${SYNC_API_BASE}/${SHARED_CLOUD_ID}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data) {
-           // 백업 복원 시에는 쿨타임 무시하고 즉시 반영
-           lastSaveTimeRef.current = 0; 
-           updateLocalState(data);
-           alert('백업 데이터가 복구되었습니다.');
-        } else {
-           alert('백업 데이터가 비어있습니다.');
-        }
-      } else {
-        throw new Error('Fetch failed');
-      }
-    } catch (e) {
-      alert('백업 불러오기 실패');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const copyLink = () => {
     navigator.clipboard.writeText(window.location.href);
@@ -941,14 +910,6 @@ const App: React.FC = () => {
                                수정
                              </button>
                           </div>
-                        </div>
-                        <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
-                           <button 
-                             onClick={handleLoadBackup}
-                             className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2"
-                           >
-                             <Download className="w-3 h-3" /> 최신 백업본 불러오기 (JsonBlob)
-                           </button>
                         </div>
                     </div>
                   </div>
