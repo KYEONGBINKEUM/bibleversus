@@ -1,4 +1,3 @@
-
 import { Department } from './types';
 
 export const INITIAL_DEPARTMENTS: Department[] = [
@@ -8,14 +7,6 @@ export const INITIAL_DEPARTMENTS: Department[] = [
 ];
 
 export const LOCAL_STORAGE_KEY = 'church_bible_race_v2_data';
-
-// JsonBlob: 무료 공용 DB (백업용)
-export const SYNC_API_BASE = 'https://jsonblob.com/api/jsonBlob';
-
-// -------------------------------------------------------------------------
-// [고정 ID] 백업용 클라우드 ID
-// -------------------------------------------------------------------------
-export const SHARED_CLOUD_ID: string = '13476903-8025-11ef-8b1d-910406692985';
 
 // -------------------------------------------------------------------------
 // [고정 구글 시트 URL] 

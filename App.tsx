@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { ReadingRecord, DepartmentId, DepartmentPopulations, PopulationLog, UserProfile, Department } from './types';
-import { INITIAL_DEPARTMENTS, DEFAULT_GOOGLE_SHEET_URL, SYNC_API_BASE, SHARED_CLOUD_ID, LOCAL_STORAGE_KEY } from './constants';
+import { INITIAL_DEPARTMENTS, DEFAULT_GOOGLE_SHEET_URL, LOCAL_STORAGE_KEY } from './constants';
 import RaceTrack from './components/RaceTrack';
 import InputSection from './components/InputSection';
 import HistoryTable from './components/HistoryTable';
@@ -9,14 +10,16 @@ import CalendarView from './components/CalendarView';
 import { InstallPrompt } from './components/InstallPrompt';
 import { 
   Trophy, BarChart3, BookOpen, Lock, Unlock, 
-  Loader2, Share2, Check, LogIn, UserCircle, LogOut,
-  Save, ChevronRight, Edit2, UserPen, Calendar,
-  Trash2, CloudOff, CloudCheck
+  Loader2, Check, LogIn, UserCircle, LogOut,
+  Save, ChevronRight, Edit2, Calendar,
+  Trash2, CloudCheck
 } from 'lucide-react';
 
 // Firebase Imports (Auth Only)
 import { auth, googleProvider, isConfigured } from './firebase';
-import * as firebaseAuth from 'firebase/auth';
+// Fix: Separated type and function imports from firebase/auth to resolve export member errors
+import { onAuthStateChanged, signInWithPopup } from 'firebase/auth';
+import type { User } from 'firebase/auth';
 
 interface AppData {
   records: ReadingRecord[];
@@ -36,7 +39,8 @@ const formatKSTDate = (date: Date | string | number) => {
 };
 
 const App: React.FC = () => {
-  const [user, setUser] = useState<firebaseAuth.User | null>(null);
+  // Use User interface directly from firebase/auth
+  const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
@@ -62,10 +66,9 @@ const App: React.FC = () => {
   const [newDeptEmoji, setNewDeptEmoji] = useState('🐢');
   const [newDeptColor, setNewDeptColor] = useState('#6366f1');
 
-  const [googleSheetUrl, setGoogleSheetUrl] = useState(DEFAULT_GOOGLE_SHEET_URL);
+  const [googleSheetUrl] = useState(DEFAULT_GOOGLE_SHEET_URL);
   
   const isFetchingRef = useRef(false);
-  const lastSaveTimeRef = useRef<number>(0); 
   
   const PENDING_RECORDS_KEY = 'confirmed_pending_v3';
   const PENDING_DELETES_KEY = 'confirmed_deletes_v3';
@@ -75,7 +78,6 @@ const App: React.FC = () => {
       const data = localStorage.getItem(PENDING_RECORDS_KEY);
       if (!data) return [];
       const parsed = JSON.parse(data);
-      // 안전장치: 12시간이 지난 데이터는 만료 (정상적인 경우 1분 내외로 사라짐)
       return parsed.filter((r: any) => Date.now() - (r._ts || 0) < 43200000);
     } catch(e) { return []; }
   };
@@ -100,7 +102,8 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!isConfigured || !auth) { setAuthLoading(false); return; }
-    const unsubscribe = firebaseAuth.onAuthStateChanged(auth, (currentUser) => {
+    // Call modular onAuthStateChanged directly
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
         const foundUser = allUsers.find(u => u.uid === currentUser.uid);
@@ -168,25 +171,18 @@ const App: React.FC = () => {
   const updateLocalState = (data: AppData) => {
     if (data.records && Array.isArray(data.records)) {
       setRecords(prevRecords => {
-        // [강력한 보호] 서버 데이터가 기존 데이터보다 현저히 적으면 무시 (서버 오류 또는 지연)
-        if (prevRecords.length > 10 && data.records.length === 0) {
-            console.warn("Ignoring empty server response to prevent data loss.");
-            return prevRecords;
-        }
+        if (prevRecords.length > 5 && data.records.length === 0) return prevRecords;
 
         const serverRecords = [...data.records];
         const pending = getPendingRecords();
         const deletes = getPendingDeletes();
         
-        // 1. 서버 응답에 내 기록이 있으면 펜딩 제거
         const stillPending = pending.filter(p => !serverRecords.find(s => s.id === p.id));
         localStorage.setItem(PENDING_RECORDS_KEY, JSON.stringify(stillPending));
 
-        // 2. 서버 응답에서 삭제한 기록이 사라졌으면 삭제 펜딩 제거
         const stillDeleting = deletes.filter(d => serverRecords.find(s => s.id === d.id));
         localStorage.setItem(PENDING_DELETES_KEY, JSON.stringify(stillDeleting));
 
-        // 3. 합성 (서버 데이터 중 삭제 안된 것 + 아직 서버에 안올라간 것)
         const deleteIdsSet = new Set(stillDeleting.map(d => d.id));
         let merged = serverRecords.filter(s => !deleteIdsSet.has(s.id));
         
@@ -213,7 +209,6 @@ const App: React.FC = () => {
 
   const saveData = async (newRecords: ReadingRecord[], newHistory: PopulationLog[], newUsers: UserProfile[] = allUsers, newDepartments: Department[] = departments) => {
     setIsSyncing(true);
-    lastSaveTimeRef.current = Date.now();
 
     setRecords(newRecords);
     setPopHistory(newHistory);
@@ -224,27 +219,26 @@ const App: React.FC = () => {
     try { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(payload)); } catch(e) {}
     
     try {
-      // mode: 'no-cors'는 응답을 읽을 수 없으나, 전송은 이루어짐
       await fetch(googleSheetUrl, {
         method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'text/plain' },
+        mode: 'no-cors', 
+        headers: { 'Content-Type': 'text/plain' }, 
         body: JSON.stringify(payload)
       });
-      // JsonBlob 백업 제거: CORS 정책 변경으로 인한 에러 방지
-      // fetch(`${SYNC_API_BASE}/${SHARED_CLOUD_ID}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).catch(() => {});
     } catch (e) {
-      console.warn("Network sync delay");
+      console.warn("Sync warning - saved locally");
     } finally {
       setIsSyncing(false);
-      // 저장 후 즉시 확인을 위해 약간의 딜레이 후 동기화 시도
       setTimeout(() => triggerSync(true), 3000);
     }
   };
 
   const handleGoogleLogin = async () => {
     if (!isConfigured || !auth || !googleProvider) return;
-    try { await firebaseAuth.signInWithPopup(auth, googleProvider); } 
+    try { 
+      // Call modular signInWithPopup function
+      await signInWithPopup(auth, googleProvider); 
+    } 
     catch (e) { alert("로그인 실패"); }
   };
 
@@ -344,31 +338,6 @@ const App: React.FC = () => {
   if (authLoading || isLoading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-indigo-600" /></div>;
 
   const pendingIds = new Set(getPendingRecords().map(r => r.id));
-
-  if (user && (!userProfile?.departmentId || isChangingDept)) {
-    return (
-      <div className="min-h-screen bg-[#F2F4F8] flex flex-col items-center justify-center p-6 text-center">
-        <div className="max-w-md w-full space-y-6">
-           <h2 className="text-2xl font-black text-slate-800">소속 선택</h2>
-           <div className="bg-white p-5 rounded-2xl shadow-sm space-y-4 text-left">
-              <label className="text-xs font-bold text-slate-500">이름 (실명)</label>
-              <input type="text" value={inputName} onChange={(e) => setInputName(e.target.value)} placeholder="예: 홍길동" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none"/>
-           </div>
-           <div className="space-y-2">
-             {departments.map(dept => (
-               <button key={dept.id} onClick={() => handleSelectDepartment(dept.id)} className="w-full bg-white p-4 rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-500 flex items-center justify-between transition-all">
-                 <div className="flex items-center gap-4">
-                   <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg" style={{ color: dept.color, backgroundColor: '#F8FAFC' }}>{dept.emoji}</div>
-                   <span className="font-bold text-slate-700">{dept.name}</span>
-                 </div>
-                 {userProfile?.departmentId === dept.id && <Check className="text-indigo-600" />}
-               </button>
-             ))}
-           </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#F2F4F8] font-sans text-slate-900 pb-32">

@@ -35,16 +35,16 @@
 <script type="importmap">
 {
   "imports": {
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "recharts": "https://esm.sh/recharts@^3.6.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
-    "react-dom": "https://esm.sh/react-dom@^19.2.3",
+    "react/": "https://esm.sh/react@19.0.0/",
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom/": "https://esm.sh/react-dom@19.0.0/",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
+    "recharts": "https://esm.sh/recharts@2.12.7",
+    "lucide-react": "https://esm.sh/lucide-react@0.344.0",
     "firebase/app": "https://esm.sh/firebase@10.8.0/app",
     "firebase/auth": "https://esm.sh/firebase@10.8.0/auth",
     "axios": "https://esm.sh/axios@1.6.7",
-    "firebase/": "https://esm.sh/firebase@^12.7.0/"
+    "firebase/": "https://esm.sh/firebase@^12.9.0/"
   }
 }
 </script>
@@ -53,12 +53,24 @@
 <body>
     <div id="root"></div>
     <script>
-      // PWA를 위한 서비스 워커 등록
+      // PWA를 위해 필수적인 최소 서비스 워커 등록
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
-            .then(() => console.log('Service Worker registered successfully'))
-            .catch((err) => console.log('Service Worker registration failed:', err));
+          navigator.serviceWorker.register('data:text/javascript;base64,' + 
+            btoa(`
+              self.addEventListener('install', (e) => {
+                e.waitUntil(self.skipWaiting());
+              });
+              self.addEventListener('activate', (e) => {
+                e.waitUntil(self.clients.claim());
+              });
+              self.addEventListener('fetch', (e) => {
+                // Network first strategy
+                e.respondWith(fetch(e.request));
+              });
+            `)
+          ).then(() => console.log('SW registered'))
+           .catch((err) => console.log('SW registration failed', err));
         });
       }
     </script>
